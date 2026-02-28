@@ -54,12 +54,14 @@ resource "hyperv_machine_instance" "domain_controller" {
   network_adaptors {
     name        = "External"
     switch_name = var.management_switch_name
+    wait_for_ips = false
   }
 
   # Attach one adapter to internal switch.
   network_adaptors {
     name        = "Internal"
     switch_name = var.internal_switch_name
+    wait_for_ips = false
   }
 
   # Attach domain controller OS disk.
@@ -77,6 +79,45 @@ resource "hyperv_machine_instance" "domain_controller" {
     path                = var.iso_path
   }
 
+  # Attach answer file ISO for unattended Windows Setup.
+  dvd_drives {
+    controller_number   = 0
+    controller_location = 2
+    path                = local.dc_answer_iso_path
+  }
+
+  # Set UEFI firmware with DVD-first boot order for OS installation.
+  vm_firmware {
+    enable_secure_boot    = "On"
+    secure_boot_template  = "MicrosoftWindows"
+    preferred_network_boot_protocol = "IPv4"
+    pause_after_boot_failure        = "On"
+
+    boot_order {
+      boot_type           = "DvdDrive"
+      controller_number   = 0
+      controller_location = 1
+    }
+
+    boot_order {
+      boot_type           = "HardDiskDrive"
+      controller_number   = 0
+      controller_location = 0
+    }
+
+    boot_order {
+      boot_type            = "NetworkAdapter"
+      network_adapter_name = "External"
+      switch_name          = var.management_switch_name
+    }
+
+    boot_order {
+      boot_type            = "NetworkAdapter"
+      network_adapter_name = "Internal"
+      switch_name          = var.internal_switch_name
+    }
+  }
+
   # Enable standard integration services for guest operations.
   integration_services = {
     "Guest Service Interface" = true
@@ -85,6 +126,14 @@ resource "hyperv_machine_instance" "domain_controller" {
     "Shutdown"                = true
     "Time Synchronization"    = true
     "VSS"                     = true
+  }
+
+  # Preserve manual secure boot and DVD adjustments made in Hyper-V Manager.
+  lifecycle {
+    ignore_changes = [
+      dvd_drives,
+      vm_processor,
+    ]
   }
 }
 
@@ -95,7 +144,7 @@ resource "hyperv_machine_instance" "cluster_node" {
   name                 = each.value
   generation           = var.vm_generation
   path                 = var.vm_path
-  state                = "Running"
+  state                = "Off"
   checkpoint_type      = "Disabled"
   processor_count      = var.processor_count
   dynamic_memory       = true
@@ -114,6 +163,7 @@ resource "hyperv_machine_instance" "cluster_node" {
     switch_name          = var.internal_switch_name
     allow_teaming        = "On"
     mac_address_spoofing = "On"
+    wait_for_ips         = false
   }
 
   network_adaptors {
@@ -121,6 +171,7 @@ resource "hyperv_machine_instance" "cluster_node" {
     switch_name          = var.internal_switch_name
     allow_teaming        = "On"
     mac_address_spoofing = "On"
+    wait_for_ips         = false
   }
 
   # Attach two adapters for cluster management and live migration.
@@ -129,6 +180,7 @@ resource "hyperv_machine_instance" "cluster_node" {
     switch_name          = var.cluster_switch_name
     allow_teaming        = "On"
     mac_address_spoofing = "On"
+    wait_for_ips         = false
   }
 
   network_adaptors {
@@ -136,6 +188,7 @@ resource "hyperv_machine_instance" "cluster_node" {
     switch_name          = var.cluster_switch_name
     allow_teaming        = "On"
     mac_address_spoofing = "On"
+    wait_for_ips         = false
   }
 
   # Attach two adapters for VM compute traffic on external Ethernet switch.
@@ -144,6 +197,7 @@ resource "hyperv_machine_instance" "cluster_node" {
     switch_name          = var.management_switch_name
     allow_teaming        = "On"
     mac_address_spoofing = "On"
+    wait_for_ips         = false
   }
 
   network_adaptors {
@@ -151,6 +205,7 @@ resource "hyperv_machine_instance" "cluster_node" {
     switch_name          = var.management_switch_name
     allow_teaming        = "On"
     mac_address_spoofing = "On"
+    wait_for_ips         = false
   }
 
   # Attach per-node OS disk.
@@ -161,33 +216,78 @@ resource "hyperv_machine_instance" "cluster_node" {
     path                = hyperv_vhd.os_disk[each.value].path
   }
 
-  # Attach shared CSV disks with persistent reservations enabled.
-  dynamic "hard_disk_drives" {
-    for_each = hyperv_vhd.shared_csv
-
-    content {
-      controller_type                 = "Scsi"
-      controller_number               = 1
-      controller_location             = tonumber(hard_disk_drives.key) - 1
-      path                            = hard_disk_drives.value.path
-      support_persistent_reservations = true
-    }
-  }
-
-  # Attach shared witness disk with persistent reservations enabled.
-  hard_disk_drives {
-    controller_type                 = "Scsi"
-    controller_number               = 1
-    controller_location             = var.csv_disk_count
-    path                            = hyperv_vhd.shared_witness.path
-    support_persistent_reservations = true
-  }
+  # NOTE: Shared CSV and witness disks require VHD Set (.vhds) or ReFS for
+  # persistent SCSI reservations on a standalone Hyper-V host. NTFS does not
+  # support shared VHDX. Attach these disks during cluster setup instead.
 
   # Attach installation ISO to DVD drive.
   dvd_drives {
     controller_number   = 0
     controller_location = 1
     path                = var.iso_path
+  }
+
+  # Attach answer file ISO for unattended Windows Setup.
+  dvd_drives {
+    controller_number   = 0
+    controller_location = 2
+    path                = local.node_answer_iso_path
+  }
+
+  # Set UEFI firmware with DVD-first boot order for OS installation.
+  vm_firmware {
+    enable_secure_boot    = "On"
+    secure_boot_template  = "MicrosoftWindows"
+    preferred_network_boot_protocol = "IPv4"
+    pause_after_boot_failure        = "On"
+
+    boot_order {
+      boot_type           = "DvdDrive"
+      controller_number   = 0
+      controller_location = 1
+    }
+
+    boot_order {
+      boot_type           = "HardDiskDrive"
+      controller_number   = 0
+      controller_location = 0
+    }
+
+    boot_order {
+      boot_type            = "NetworkAdapter"
+      network_adapter_name = "Mgmt-1"
+      switch_name          = var.internal_switch_name
+    }
+
+    boot_order {
+      boot_type            = "NetworkAdapter"
+      network_adapter_name = "Mgmt-2"
+      switch_name          = var.internal_switch_name
+    }
+
+    boot_order {
+      boot_type            = "NetworkAdapter"
+      network_adapter_name = "Cluster-1"
+      switch_name          = var.cluster_switch_name
+    }
+
+    boot_order {
+      boot_type            = "NetworkAdapter"
+      network_adapter_name = "Cluster-2"
+      switch_name          = var.cluster_switch_name
+    }
+
+    boot_order {
+      boot_type            = "NetworkAdapter"
+      network_adapter_name = "Compute-1"
+      switch_name          = var.management_switch_name
+    }
+
+    boot_order {
+      boot_type            = "NetworkAdapter"
+      network_adapter_name = "Compute-2"
+      switch_name          = var.management_switch_name
+    }
   }
 
   # Enable standard integration services for guest operations.
@@ -198,6 +298,15 @@ resource "hyperv_machine_instance" "cluster_node" {
     "Shutdown"                = true
     "Time Synchronization"    = true
     "VSS"                     = true
+  }
+
+  # Preserve manual secure boot, DVD adjustments, and running state after AD-gated start.
+  lifecycle {
+    ignore_changes = [
+      dvd_drives,
+      state,
+      vm_processor,
+    ]
   }
 
   depends_on = [hyperv_machine_instance.domain_controller]

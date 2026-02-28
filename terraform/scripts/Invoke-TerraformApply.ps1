@@ -31,8 +31,8 @@ $Helpers = {
         Remove-Item Env:TF_VAR_hyperv_user -ErrorAction SilentlyContinue
         Remove-Item Env:TF_VAR_hyperv_password -ErrorAction SilentlyContinue
 
-        # Execute Terraform apply from the Terraform project root directory.
-        tf apply -auto-approve
+        # Execute Terraform apply from the Terraform project root directory with interactive input enabled.
+        tf apply -auto-approve -input=true
     }
 }
 

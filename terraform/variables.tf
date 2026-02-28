@@ -52,12 +52,22 @@ variable "hyperv_user" {
   description = "Hyper-V administrative username"
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = length(trimspace(var.hyperv_user)) > 0
+    error_message = "hyperv_user must be a non-empty value. Set TF_VAR_hyperv_user, pass -var, or provide it interactively."
+  }
 }
 
 variable "hyperv_password" {
   description = "Hyper-V administrative password"
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = length(trimspace(var.hyperv_password)) > 0
+    error_message = "hyperv_password must be a non-empty value. Set TF_VAR_hyperv_password, pass -var, or provide it interactively."
+  }
 }
 
 # Configure cluster node naming and placement settings.
@@ -170,7 +180,7 @@ variable "csv_disk_count" {
 variable "csv_disk_size_gb" {
   description = "Size in GB for each shared CSV disk"
   type        = number
-  default     = 50
+  default     = 6
 }
 
 variable "witness_disk_size_gb" {
