@@ -13,6 +13,7 @@ resource "terraform_data" "guest_bootstrap" {
     domain_name                   = var.domain_name
     domain_controller_name        = var.domain_controller_name
     cluster_nodes                 = join(",", var.cluster_node_names)
+    cluster_node_internal_ipv4s   = join(",", var.cluster_node_internal_ipv4s)
     guest_admin_username          = var.guest_admin_username
     guest_admin_password_checksum = sha256(var.guest_admin_password)
     dsrm_password_checksum        = sha256(var.domain_safe_mode_password)
@@ -22,7 +23,7 @@ resource "terraform_data" "guest_bootstrap" {
 
   provisioner "local-exec" {
     interpreter = ["pwsh", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"]
-    command     = "& '${var.bootstrap_script_path}' -DomainName '${var.domain_name}' -DomainControllerName '${var.domain_controller_name}' -ClusterNodeNames '${join(",", var.cluster_node_names)}' -GuestAdminUsername '${var.guest_admin_username}' -DomainControllerIPv4 '${var.domain_controller_ipv4}' -DomainControllerPrefixLength ${var.domain_controller_prefix_length}"
+    command     = "& '${var.bootstrap_script_path}' -DomainName '${var.domain_name}' -DomainControllerName '${var.domain_controller_name}' -ClusterNodeNames '${join(",", var.cluster_node_names)}' -ClusterNodeInternalIPv4s '${join(",", var.cluster_node_internal_ipv4s)}' -GuestAdminUsername '${var.guest_admin_username}' -DomainControllerIPv4 '${var.domain_controller_ipv4}' -DomainControllerPrefixLength ${var.domain_controller_prefix_length}"
 
     environment = {
       GUEST_ADMIN_PASSWORD      = var.guest_admin_password

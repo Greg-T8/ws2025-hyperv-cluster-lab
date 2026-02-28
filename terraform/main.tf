@@ -47,6 +47,7 @@ module "active_directory" {
   guest_admin_password            = var.guest_admin_password
   domain_safe_mode_password       = var.domain_safe_mode_password
   domain_controller_ipv4          = var.domain_controller_ipv4
+  cluster_node_internal_ipv4s     = var.cluster_node_internal_ipv4s
   domain_controller_prefix_length = var.domain_controller_prefix_length
   bootstrap_script_path           = "${path.module}/scripts/Invoke-DomainBootstrap.ps1"
 

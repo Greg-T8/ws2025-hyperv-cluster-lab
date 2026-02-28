@@ -28,6 +28,9 @@ param(
     [string]$ClusterNodeNames,
 
     [Parameter(Mandatory)]
+    [string]$ClusterNodeInternalIPv4s,
+
+    [Parameter(Mandatory)]
     [string]$GuestAdminUsername,
 
     [Parameter(Mandatory)]
@@ -48,12 +51,13 @@ $Main = {
     $GuestCredential = New-GuestCredential
     $SafeModePassword = ConvertTo-SecureString -String $env:DOMAIN_SAFE_MODE_PASSWORD -AsPlainText -Force
     $ClusterNodes = Get-ClusterNodeList
+    $ClusterNodeInternalIPs = Get-ClusterNodeInternalIpList
 
     Wait-ForVmPowerShell -VmName $DomainControllerName -GuestCredential $GuestCredential
     Initialize-DomainController -VmName $DomainControllerName -GuestCredential $GuestCredential -DomainName $DomainName -DomainControllerIPv4 $DomainControllerIPv4 -DomainControllerPrefixLength $DomainControllerPrefixLength -SafeModePassword $SafeModePassword
     Wait-ForDomainReady -VmName $DomainControllerName -GuestCredential $GuestCredential -DomainName $DomainName
 
-    Join-ClusterNodesToDomain -NodeNames $ClusterNodes -GuestCredential $GuestCredential -DomainName $DomainName -DomainControllerIPv4 $DomainControllerIPv4 -DomainAdminUsername $GuestAdminUsername
+    Join-ClusterNodesToDomain -NodeNames $ClusterNodes -NodeIPv4Addresses $ClusterNodeInternalIPs -PrefixLength $DomainControllerPrefixLength -GuestCredential $GuestCredential -DomainName $DomainName -DomainControllerIPv4 $DomainControllerIPv4 -DomainAdminUsername $GuestAdminUsername
     Confirm-HostsReady -NodeNames $ClusterNodes -GuestCredential $GuestCredential -DomainName $DomainName
 }
 
@@ -73,6 +77,10 @@ $Helpers = {
         if ([string]::IsNullOrWhiteSpace($ClusterNodeNames)) {
             throw 'ClusterNodeNames input cannot be empty.'
         }
+
+        if ([string]::IsNullOrWhiteSpace($ClusterNodeInternalIPv4s)) {
+            throw 'ClusterNodeInternalIPv4s input cannot be empty.'
+        }
     }
     #endregion
 
@@ -90,6 +98,22 @@ $Helpers = {
         return $ClusterNodeNames.Split(',') |
             ForEach-Object { $_.Trim() } |
             Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    }
+
+    # Parse and normalize the comma-delimited cluster node internal IPv4 list.
+    function Get-ClusterNodeInternalIpList {
+        # Build a clean array of IPv4 addresses from the incoming list.
+        $nodeIps = $ClusterNodeInternalIPv4s.Split(',') |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+        # Ensure each cluster node has exactly one configured internal IPv4 address.
+        $nodeNames = Get-ClusterNodeList
+        if ($nodeIps.Count -ne $nodeNames.Count) {
+            throw "ClusterNodeInternalIPv4s count [$($nodeIps.Count)] must match ClusterNodeNames count [$($nodeNames.Count)]."
+        }
+
+        return $nodeIps
     }
     #endregion
 
@@ -256,6 +280,12 @@ $Helpers = {
             [string[]]$NodeNames,
 
             [Parameter(Mandatory)]
+            [string[]]$NodeIPv4Addresses,
+
+            [Parameter(Mandatory)]
+            [int]$PrefixLength,
+
+            [Parameter(Mandatory)]
             [PSCredential]$GuestCredential,
 
             [Parameter(Mandatory)]
@@ -269,13 +299,18 @@ $Helpers = {
         )
 
         # Join each node and restart it if domain membership changes.
-        foreach ($nodeName in $NodeNames) {
+        for ($index = 0; $index -lt $NodeNames.Count; $index++) {
+            $nodeName = $NodeNames[$index]
+            $nodeInternalIPv4 = $NodeIPv4Addresses[$index]
+
             Wait-ForVmPowerShell -VmName $nodeName -GuestCredential $GuestCredential
             $domainAdminPasswordSecure = ConvertTo-SecureString -String $env:GUEST_ADMIN_PASSWORD -AsPlainText -Force
 
             Invoke-Command -VMName $nodeName -Credential $GuestCredential -ScriptBlock {
                 param(
                     [string]$DomainName,
+                    [string]$NodeInternalIPv4,
+                    [int]$PrefixLength,
                     [string]$DomainControllerIPv4,
                     [string]$DomainAdminUsername,
                     [SecureString]$DomainAdminPassword
@@ -286,6 +321,39 @@ $Helpers = {
                 if ($computerSystem.PartOfDomain -and $computerSystem.Domain -ieq $DomainName) {
                     return
                 }
+
+                # Select an internal adapter candidate for static node addressing.
+                $candidateConfig = Get-NetIPConfiguration |
+                    Where-Object {
+                        $_.NetAdapter.Status -eq 'Up' -and
+                        $_.NetAdapter.HardwareInterface -and
+                        $null -eq $_.IPv4DefaultGateway
+                    } |
+                    Select-Object -First 1
+
+                # Fall back to any active hardware adapter if needed.
+                if (-not $candidateConfig) {
+                    $candidateConfig = Get-NetIPConfiguration |
+                        Where-Object {
+                            $_.NetAdapter.Status -eq 'Up' -and
+                            $_.NetAdapter.HardwareInterface
+                        } |
+                        Select-Object -First 1
+                }
+
+                if (-not $candidateConfig) {
+                    throw 'No active network adapter was found in the guest VM.'
+                }
+
+                # Remove existing IPv4 addresses and set the required static node address.
+                $existingV4 = Get-NetIPAddress -InterfaceIndex $candidateConfig.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                    Where-Object { $_.IPAddress -notlike '169.254.*' }
+
+                foreach ($address in $existingV4) {
+                    Remove-NetIPAddress -InterfaceIndex $candidateConfig.InterfaceIndex -IPAddress $address.IPAddress -Confirm:$false -ErrorAction SilentlyContinue
+                }
+
+                New-NetIPAddress -InterfaceIndex $candidateConfig.InterfaceIndex -IPAddress $NodeInternalIPv4 -PrefixLength $PrefixLength -AddressFamily IPv4 -ErrorAction Stop | Out-Null
 
                 # Set DNS on all active hardware adapters to the domain controller.
                 Get-NetAdapter |
@@ -301,7 +369,7 @@ $Helpers = {
                 $domainCredential = [PSCredential]::new("$DomainAdminUsername@$DomainName", $DomainAdminPassword)
 
                 Add-Computer -DomainName $DomainName -Credential $domainCredential -Force -Restart
-            } -ArgumentList $DomainName, $DomainControllerIPv4, $DomainAdminUsername, $domainAdminPasswordSecure -ErrorAction Stop
+            } -ArgumentList $DomainName, $nodeInternalIPv4, $PrefixLength, $DomainControllerIPv4, $DomainAdminUsername, $domainAdminPasswordSecure -ErrorAction Stop
 
             Wait-ForVmPowerShell -VmName $nodeName -GuestCredential $GuestCredential
             Write-Host "[$nodeName] Domain join completed."

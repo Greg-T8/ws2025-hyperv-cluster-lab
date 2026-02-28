@@ -48,6 +48,11 @@ variable "domain_controller_ipv4" {
   type        = string
 }
 
+variable "cluster_node_internal_ipv4s" {
+  description = "Ordered static IPv4 addresses for cluster nodes on the internal switch"
+  type        = list(string)
+}
+
 variable "domain_controller_prefix_length" {
   description = "Prefix length for the domain controller internal IPv4 address"
   type        = number

@@ -81,7 +81,7 @@ variable "vm_count" {
 variable "vm_path" {
   description = "Root path on Hyper-V host for VM assets"
   type        = string
-  default     = "D:\\Hyper-V"
+  default     = "D:\\Hyper-V\\ClusterLab"
 }
 
 variable "iso_path" {
@@ -170,7 +170,7 @@ variable "csv_disk_count" {
 variable "csv_disk_size_gb" {
   description = "Size in GB for each shared CSV disk"
   type        = number
-  default     = 100
+  default     = 50
 }
 
 variable "witness_disk_size_gb" {
@@ -189,7 +189,18 @@ variable "domain_name" {
 variable "domain_controller_ipv4" {
   description = "Static IPv4 address used by the domain controller on the internal switch"
   type        = string
-  default     = "172.16.10.10"
+  default     = "192.168.148.40"
+}
+
+variable "cluster_node_internal_ipv4s" {
+  description = "Ordered static IPv4 addresses for cluster nodes on the internal switch"
+  type        = list(string)
+  default     = ["192.168.148.51", "192.168.148.52", "192.168.148.53"]
+
+  validation {
+    condition     = length(var.cluster_node_internal_ipv4s) == var.vm_count
+    error_message = "cluster_node_internal_ipv4s must contain exactly one entry per cluster node VM."
+  }
 }
 
 variable "domain_controller_prefix_length" {
