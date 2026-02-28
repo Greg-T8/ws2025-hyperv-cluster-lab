@@ -1,7 +1,7 @@
 # -------------------------------------------------------------------------
 # Program: variables.tf
 # Description: Input variables for Hyper-V failover cluster lab deployment
-# Context: 3-node local Hyper-V failover cluster lab (Goose Creek ISD)
+# Context: 3-node local Hyper-V failover cluster lab
 # Author: Greg Tate
 # -------------------------------------------------------------------------
 

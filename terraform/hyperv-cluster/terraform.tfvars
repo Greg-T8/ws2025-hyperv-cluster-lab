@@ -1,7 +1,7 @@
 # -------------------------------------------------------------------------
 # Program: terraform.tfvars
 # Description: Default variable values for local Hyper-V cluster lab
-# Context: 3-node local Hyper-V failover cluster lab (Goose Creek ISD)
+# Context: 3-node local Hyper-V failover cluster lab
 # Author: Greg Tate
 # -------------------------------------------------------------------------
 

@@ -1,7 +1,7 @@
 # -------------------------------------------------------------------------
 # Program: providers.tf
 # Description: Hyper-V provider configuration for local WinRM connectivity
-# Context: 3-node local Hyper-V failover cluster lab (Goose Creek ISD)
+# Context: 3-node local Hyper-V failover cluster lab
 # Author: Greg Tate
 # -------------------------------------------------------------------------
 

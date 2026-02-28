@@ -1,7 +1,7 @@
 # -------------------------------------------------------------------------
 # Program: locals.tf
 # Description: Local computed values for Hyper-V module resources
-# Context: 3-node local Hyper-V failover cluster lab (Goose Creek ISD)
+# Context: 3-node local Hyper-V failover cluster lab
 # Author: Greg Tate
 # -------------------------------------------------------------------------
 

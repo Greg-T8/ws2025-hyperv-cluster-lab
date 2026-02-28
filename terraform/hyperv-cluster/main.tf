@@ -1,7 +1,7 @@
 # -------------------------------------------------------------------------
 # Program: main.tf
 # Description: Hyper-V VM, disk, and network configuration for cluster lab
-# Context: 3-node local Hyper-V failover cluster lab (Goose Creek ISD)
+# Context: 3-node local Hyper-V failover cluster lab
 # Author: Greg Tate
 # -------------------------------------------------------------------------
 

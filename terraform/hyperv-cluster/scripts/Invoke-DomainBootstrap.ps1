@@ -7,7 +7,7 @@ Uses PowerShell Direct to configure AD DS on the domain controller VM and
 join Hyper-V host VMs to the domain so all hosts are ready for login.
 
 .CONTEXT
-3-node local Hyper-V failover cluster lab (Goose Creek ISD)
+3-node local Hyper-V failover cluster lab
 
 .AUTHOR
 Greg Tate

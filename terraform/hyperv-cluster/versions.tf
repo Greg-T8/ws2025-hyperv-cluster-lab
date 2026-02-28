@@ -1,7 +1,7 @@
 # -------------------------------------------------------------------------
 # Program: versions.tf
 # Description: Terraform and provider version constraints for Hyper-V lab
-# Context: 3-node local Hyper-V failover cluster lab (Goose Creek ISD)
+# Context: 3-node local Hyper-V failover cluster lab
 # Author: Greg Tate
 # -------------------------------------------------------------------------
 

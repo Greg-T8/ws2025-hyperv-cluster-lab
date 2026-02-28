@@ -1,7 +1,7 @@
 # -------------------------------------------------------------------------
 # Program: main.tf
 # Description: Active Directory promotion and domain-join orchestration module
-# Context: 3-node local Hyper-V failover cluster lab (Goose Creek ISD)
+# Context: 3-node local Hyper-V failover cluster lab
 # Author: Greg Tate
 # -------------------------------------------------------------------------
 
