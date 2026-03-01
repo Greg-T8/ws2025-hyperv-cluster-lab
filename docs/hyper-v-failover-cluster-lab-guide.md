@@ -37,6 +37,16 @@ This lab deploys a 3-node Hyper-V failover cluster with a dedicated domain contr
 The diagram below maps the NIC chain inside each cluster node guest OS, where VM vNICs act as physical adapters teamed into dedicated SET virtual switches.
 
 ```mermaid
+%%{init: {
+    "theme": "base",
+    "themeVariables": {
+        "background": "#FDFEFE",
+        "primaryTextColor": "#323130",
+        "lineColor": "#605E5C",
+        "clusterBkg": "#F7FAFD",
+        "clusterBorder": "#A7BDD4"
+    }
+}}%%
 graph LR
     subgraph NODE["HV01 / HV02 / HV03 — Cluster Nodes (representative)"]
         subgraph GNICS["VM vNICs (physical adapters inside guest OS)"]
@@ -58,7 +68,7 @@ graph LR
         end
 
         subgraph GVNICS["Host vNICs"]
-            HV_MGMT["vEthernet: Management\n172.16.10.x/24"]
+            HV_MGMT["vEthernet: Management\n192.168.148.x/24"]
             HV_CLUS["vEthernet: Cluster\n10.10.10.x/24"]
             HV_LM["vEthernet: LiveMigration\n10.10.10.2x/24"]
         end
@@ -71,6 +81,21 @@ graph LR
         SET_C --> HV_CLUS
         SET_LM --> HV_LM
     end
+
+    classDef mgmt fill:#DCEEFF,stroke:#2F78C4,stroke-width:1px,color:#1F2937;
+    classDef cluster fill:#DDF4E4,stroke:#2E8B57,stroke-width:1px,color:#1F2937;
+    classDef livemig fill:#EADFFD,stroke:#6F4BB8,stroke-width:1px,color:#1F2937;
+    classDef vmnet fill:#FFE8CC,stroke:#C46A1A,stroke-width:1px,color:#1F2937;
+
+    class M1,M2,SET_M,HV_MGMT mgmt;
+    class C1,C2,SET_C,HV_CLUS cluster;
+    class LM1,LM2,SET_LM,HV_LM livemig;
+    class CP1,CP2,SET_CP vmnet;
+
+    style NODE fill:#F6FAFD,stroke:#9FB3C8,stroke-width:1px,color:#1F2937
+    style GNICS fill:#FFFFFF,stroke:#B9C7D6,stroke-width:1px,color:#1F2937
+    style GSET fill:#FFFFFF,stroke:#B9C7D6,stroke-width:1px,color:#1F2937
+    style GVNICS fill:#FFFFFF,stroke:#B9C7D6,stroke-width:1px,color:#1F2937
 ```
 
 ### Network Design
@@ -313,15 +338,6 @@ Here's a look at all adapters after virtual switch creation:
 ### 5.7 Configure IP Addresses on Host vNICs
 
 ```powershell
-# Management vNIC — adjust IP per node (HV01=.11, HV02=.12, HV03=.13)
-New-NetIPAddress -InterfaceAlias "vEthernet (Management)" `
-    -IPAddress "172.16.10.11" `
-    -PrefixLength 24 `
-    -DefaultGateway "172.16.10.1"
-
-Set-DnsClientServerAddress -InterfaceAlias "vEthernet (Management)" `
-    -ServerAddresses "172.16.10.10"
-
 # Cluster vNIC — adjust IP per node (HV01=.11, HV02=.12, HV03=.13)
 New-NetIPAddress -InterfaceAlias "vEthernet (Cluster)" `
     -IPAddress "10.10.10.11" `
@@ -379,7 +395,7 @@ Get-VMNetworkAdapter -ManagementOS | Select-Object Name, SwitchName, IPAddresses
     Format-Table -AutoSize
 
 # Verify connectivity - ping from each node
-Test-NetConnection -ComputerName "172.16.10.12" -InformationLevel Detailed
+Test-NetConnection -ComputerName "192.168.148.52" -InformationLevel Detailed
 Test-NetConnection -ComputerName "10.10.10.12" -InformationLevel Detailed
 ```
 
@@ -446,11 +462,11 @@ Install-WindowsFeature -Name AD-Domain-Services -IncludeManagementTools
 
 # Configure static IP
 New-NetIPAddress -InterfaceAlias "Ethernet" `
-    -IPAddress "172.16.10.10" `
+    -IPAddress "192.168.148.10" `
     -PrefixLength 24
 
 Set-DnsClientServerAddress -InterfaceAlias "Ethernet" `
-    -ServerAddresses "127.0.0.1", "172.16.10.10"
+    -ServerAddresses "127.0.0.1", "192.168.148.10"
 
 # Promote to domain controller
 Import-Module ADDSDeployment
@@ -480,7 +496,7 @@ On **each cluster node**:
 # Point DNS to domain controller
 Get-NetAdapter | Where-Object Status -eq 'Up' | ForEach-Object {
     Set-DnsClientServerAddress -InterfaceIndex $_.ifIndex `
-        -ServerAddresses "172.16.10.10"
+    -ServerAddresses "192.168.148.10"
 }
 
 # Join the domain
@@ -534,7 +550,7 @@ Review the validation report carefully. Address any warnings or errors before pr
 ```powershell
 New-Cluster -Name "HV-Cluster" `
     -Node "HV01", "HV02", "HV03" `
-    -StaticAddress "172.16.10.20" `
+    -StaticAddress "192.168.148.50" `
     -NoStorage
 ```
 
@@ -554,7 +570,7 @@ After cluster creation, rename and configure the cluster networks for clarity:
 
 ```powershell
 # Rename cluster networks
-(Get-ClusterNetwork | Where-Object Address -eq "172.16.10.0").Name = "Management"
+(Get-ClusterNetwork | Where-Object Address -eq "192.168.148.0").Name = "Management"
 (Get-ClusterNetwork | Where-Object Address -eq "10.10.10.0").Name = "Cluster"
 
 # Set network roles
@@ -644,7 +660,7 @@ Invoke-Command -ComputerName "HV01", "HV02", "HV03" -ScriptBlock {
     Add-VMMigrationNetwork -Subnet "10.10.10.0/24" -Priority 1
 
     # Remove management network from migration (if present)
-    $mgmtNet = Get-VMMigrationNetwork | Where-Object Subnet -like "172.16.10.*"
+    $mgmtNet = Get-VMMigrationNetwork | Where-Object Subnet -like "192.168.148.*"
     if ($mgmtNet) {
         Remove-VMMigrationNetwork -Subnet $mgmtNet.Subnet
     }
