@@ -34,13 +34,14 @@ This lab deploys a 3-node Hyper-V failover cluster with a dedicated domain contr
 
 ### Network Design
 
-Each cluster node uses **six physical NICs** (or virtual NICs in a nested lab) organized into three SET teams:
+Each cluster node uses **eight physical NICs** (or virtual NICs in a nested lab) organized into four SET teams:
 
 | SET vSwitch | Member NICs | Traffic Type | Switch Type |
 |---|---|---|---|
 | `vSwitch-Mgmt` | Mgmt-1, Mgmt-2 | Host management, DNS, domain traffic | Internal |
-| `vSwitch-Cluster` | Cluster-1, Cluster-2 | Cluster heartbeat, CSV I/O, live migration | Private |
-| `vSwitch-Compute` | Compute-1, Compute-2 | VM guest network traffic | External |
+| `vSwitch-Cluster` | Cluster-1, Cluster-2 | Cluster heartbeat, CSV I/O | Private |
+| `vSwitch-LiveMigration` | LM-1, LM-2 | Live migration traffic | Private |
+| `vSwitch-VM` | VM-1, VM-2 | VM guest network traffic | External |
 
 ### IP Addressing
 
@@ -48,7 +49,48 @@ Each cluster node uses **six physical NICs** (or virtual NICs in a nested lab) o
 |---|---|---|
 | Management | 172.16.10.0/24 | Host management, AD, DNS |
 | Cluster | 10.10.10.0/24 | Cluster-internal communication |
-| Compute | DHCP or 192.168.1.0/24 | VM guest traffic |
+| VM | DHCP or 192.168.1.0/24 | VM guest traffic |
+
+### Network Topology
+
+The diagram below maps the NIC chain inside each cluster node guest OS, where VM vNICs act as physical adapters teamed into dedicated SET virtual switches.
+
+```mermaid
+graph LR
+    subgraph NODE["HV01 / HV02 / HV03 — Cluster Nodes (representative)"]
+        subgraph GNICS["VM vNICs (physical adapters inside guest OS)"]
+            M1["Mgmt-1"]
+            M2["Mgmt-2"]
+            C1["Cluster-1"]
+            C2["Cluster-2"]
+            LM1["LM-1"]
+            LM2["LM-2"]
+            CP1["VM-1"]
+            CP2["VM-2"]
+        end
+
+        subgraph GSET["SET Virtual Switches"]
+            SET_M["vSwitch-Mgmt\nSET · Internal"]
+            SET_C["vSwitch-Cluster\nSET · Private"]
+            SET_LM["vSwitch-LiveMigration\nSET · Private"]
+            SET_CP["vSwitch-VM\nSET · External"]
+        end
+
+        subgraph GVNICS["Host vNICs"]
+            HV_MGMT["vEthernet: Management\n172.16.10.x/24"]
+            HV_CLUS["vEthernet: Cluster\n10.10.10.x/24"]
+            HV_LM["vEthernet: LiveMigration\n10.10.10.2x/24"]
+        end
+
+        M1 & M2 --> SET_M
+        C1 & C2 --> SET_C
+        LM1 & LM2 --> SET_LM
+        CP1 & CP2 --> SET_CP
+        SET_M --> HV_MGMT
+        SET_C --> HV_CLUS
+        SET_LM --> HV_LM
+    end
+```
 
 ---
 
@@ -126,9 +168,9 @@ Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, LinkSpeed |
     Sort-Object InterfaceDescription | Format-Table -AutoSize
 ```
 
-<img src='.img/2026-03-01-09-08-13.png' width=800>
+<img src='.img/2026-03-01-09-32-28.png' width=800>
 
-<img src='.img/2026-03-01-09-08-29.png' width=800>
+<img src='.img/2026-03-01-09-30-18.png' width=800>
 
 ### 4.3 Create the Management SET vSwitch
 
@@ -147,7 +189,7 @@ New-VMSwitch -Name "vSwitch-Mgmt" `
 ### 4.4 Create the Cluster SET vSwitch
 
 ```powershell
-# Create a private SET vSwitch for cluster heartbeat and live migration
+# Create a private SET vSwitch for cluster heartbeat and CSV traffic
 New-VMSwitch -Name "vSwitch-Cluster" `
     -SwitchType Private `
     -EnableEmbeddedTeaming $true `
@@ -156,23 +198,35 @@ New-VMSwitch -Name "vSwitch-Cluster" `
     -MinimumBandwidthMode Weight
 ```
 
-### 4.5 Create the Compute SET vSwitch
+### 4.5 Create the Live Migration SET vSwitch
 
 ```powershell
-# Create an external SET vSwitch for VM compute traffic
-New-VMSwitch -Name "vSwitch-Compute" `
+# Create a private SET vSwitch for live migration traffic
+New-VMSwitch -Name "vSwitch-LiveMigration" `
+    -SwitchType Private `
+    -EnableEmbeddedTeaming $true `
+    -NetAdapterName "LM-1", "LM-2" `
+    -AllowManagementOS $true `
+    -MinimumBandwidthMode Weight
+```
+
+### 4.6 Create the VM SET vSwitch
+
+```powershell
+# Create an external SET vSwitch for VM guest traffic
+New-VMSwitch -Name "vSwitch-VM" `
     -SwitchType External `
     -EnableEmbeddedTeaming $true `
-    -NetAdapterName "Compute-1", "Compute-2" `
+    -NetAdapterName "VM-1", "VM-2" `
     -AllowManagementOS $false `
     -MinimumBandwidthMode Weight
 ```
 
-> **Tip**: Set `-AllowManagementOS $false` on the compute vSwitch to keep host management traffic isolated from guest VM traffic.
+> **Tip**: Set `-AllowManagementOS $false` on the VM vSwitch to keep host management traffic isolated from guest VM traffic.
 
-### 4.6 Add Host vNICs on SET Switches
+### 4.7 Add Host vNICs on SET Switches
 
-For management and cluster traffic, add host virtual NICs to the SET switches:
+For management, cluster, and live migration traffic, add host virtual NICs to the SET switches:
 
 ```powershell
 # Add a host vNIC for management
@@ -182,10 +236,10 @@ Add-VMNetworkAdapter -ManagementOS -SwitchName "vSwitch-Mgmt" -Name "Management"
 Add-VMNetworkAdapter -ManagementOS -SwitchName "vSwitch-Cluster" -Name "Cluster"
 
 # Add a host vNIC for live migration
-Add-VMNetworkAdapter -ManagementOS -SwitchName "vSwitch-Cluster" -Name "LiveMigration"
+Add-VMNetworkAdapter -ManagementOS -SwitchName "vSwitch-LiveMigration" -Name "LiveMigration"
 ```
 
-### 4.7 Configure IP Addresses on Host vNICs
+### 4.8 Configure IP Addresses on Host vNICs
 
 ```powershell
 # Management vNIC — adjust IP per node (HV01=.11, HV02=.12, HV03=.13)
@@ -208,7 +262,7 @@ New-NetIPAddress -InterfaceAlias "vEthernet (LiveMigration)" `
     -PrefixLength 24
 ```
 
-### 4.8 Configure SET Team Settings
+### 4.9 Configure SET Team Settings
 
 ```powershell
 # View the SET team configuration
@@ -217,10 +271,11 @@ Get-VMSwitchTeam -Name "vSwitch-Mgmt"
 # Set load balancing algorithm (HyperVPort is the default and recommended)
 Set-VMSwitchTeam -Name "vSwitch-Mgmt" -LoadBalancingAlgorithm HyperVPort
 Set-VMSwitchTeam -Name "vSwitch-Cluster" -LoadBalancingAlgorithm HyperVPort
-Set-VMSwitchTeam -Name "vSwitch-Compute" -LoadBalancingAlgorithm HyperVPort
+Set-VMSwitchTeam -Name "vSwitch-LiveMigration" -LoadBalancingAlgorithm HyperVPort
+Set-VMSwitchTeam -Name "vSwitch-VM" -LoadBalancingAlgorithm HyperVPort
 ```
 
-### 4.9 Configure QoS Policies (Optional)
+### 4.10 Configure QoS Policies (Optional)
 
 ```powershell
 # Reserve bandwidth for cluster heartbeat traffic
@@ -235,7 +290,7 @@ New-NetQosPolicy -Name "SMB" -NetDirectPortMatchCondition 445 `
     -MinBandwidthWeightAction 30
 ```
 
-### 4.10 Verify SET Configuration
+### 4.11 Verify SET Configuration
 
 ```powershell
 # Verify all SET switches
