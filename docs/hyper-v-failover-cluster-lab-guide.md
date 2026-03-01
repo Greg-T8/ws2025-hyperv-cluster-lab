@@ -9,8 +9,8 @@ This guide walks through the end-to-end process of building a **Windows Server 2
 1. [Architecture Overview](#1-architecture-overview)
 2. [Prerequisites](#2-prerequisites)
 3. [Phase 1 — Host Configuration](#3-phase-1--host-configuration)
-4. [Phase 2 — Networking with SET Virtual Switches](#4-phase-2--networking-with-set-virtual-switches)
-5. [Phase 3 — Install and Configure Hyper-V Role](#5-phase-3--install-and-configure-hyper-v-role)
+4. [Phase 2 — Install and Configure Hyper-V Role](#4-phase-2--install-and-configure-hyper-v-role)
+5. [Phase 3 — Networking with SET Virtual Switches](#5-phase-3--networking-with-set-virtual-switches)
 6. [Phase 4 — Storage Configuration](#6-phase-4--storage-configuration)
 7. [Phase 5 — Active Directory Preparation](#7-phase-5--active-directory-preparation)
 8. [Phase 6 — Failover Clustering](#8-phase-6--failover-clustering)
@@ -144,11 +144,46 @@ powercfg /setactive SCHEME_MIN  # High performance
 
 ---
 
-## 4. Phase 2 — Networking with SET Virtual Switches
+## 4. Phase 2 — Install and Configure Hyper-V Role
+
+### 4.1 Install the Hyper-V Role
+
+```powershell
+Install-WindowsFeature -Name Hyper-V `
+    -IncludeManagementTools `
+    -Restart
+```
+
+<img src='.img/2026-03-01-10-13-17.png' width=800>
+
+### 4.2 Configure Default Hyper-V Paths
+
+```powershell
+Set-VMHost -VirtualMachinePath "D:\Hyper-V" `
+           -VirtualHardDiskPath "D:\Hyper-V\Virtual Hard Disks"
+```
+
+### 4.3 Configure Hyper-V Host Settings
+
+```powershell
+# Enable NUMA spanning (useful for VMs larger than a single NUMA node)
+Set-VMHost -NumaSpanningEnabled $true
+
+# Configure enhanced session mode
+Set-VMHost -EnableEnhancedSessionMode $true
+
+# Set live migration settings (configured fully in Phase 8)
+Set-VMHost -MaximumVirtualMachineMigrations 2
+Set-VMHost -VirtualMachineMigrationPerformanceOption SMB
+```
+
+---
+
+## 5. Phase 3 — Networking with SET Virtual Switches
 
 **Switch Embedded Teaming (SET)** is the replacement for traditional NIC Teaming (LBFO) in Hyper-V environments starting with Windows Server 2016. SET is integrated directly into the Hyper-V virtual switch, providing NIC teaming functionality without a separate LBFO team. In Windows Server 2025, SET is the recommended and fully supported approach.
 
-### 4.1 Why SET Over Traditional NIC Teaming
+### 5.1 Why SET Over Traditional NIC Teaming
 
 | Feature | LBFO (Legacy) | SET (Recommended) |
 |---|---|---|
@@ -159,7 +194,7 @@ powercfg /setactive SCHEME_MIN  # High performance
 | Supported in WS2025 | Deprecated | Fully supported |
 | Management plane | Separate | Unified with vSwitch |
 
-### 4.2 Identify Physical Adapters
+### 5.2 Identify Physical Adapters
 
 Before creating SET switches, identify the NICs on each node:
 
@@ -192,7 +227,7 @@ Get-NetAdapter | Select-Object InterfaceIndex, Name, InterfaceDescription, Statu
 
 <img src='.img/2026-03-01-09-30-18.png' width=800>
 
-### 4.3 Create the Management SET vSwitch
+### 5.3 Create the Management SET vSwitch
 
 ```powershell
 # Create an external SET vSwitch for management traffic
@@ -206,7 +241,7 @@ New-VMSwitch -Name "vSwitch-Mgmt" `
 
 > **Note**: When using `-SwitchType External` with `-EnableEmbeddedTeaming $true`, you combine NIC teaming and vSwitch creation into a single step. The `-NetAdapterName` parameter accepts an array of adapter names to team.
 
-### 4.4 Create the Cluster SET vSwitch
+### 5.4 Create the Cluster SET vSwitch
 
 ```powershell
 # Create an external SET vSwitch for cluster heartbeat and CSV traffic
@@ -218,7 +253,7 @@ New-VMSwitch -Name "vSwitch-Cluster" `
     -MinimumBandwidthMode None
 ```
 
-### 4.5 Create the Live Migration SET vSwitch
+### 5.5 Create the Live Migration SET vSwitch
 
 ```powershell
 # Create an external SET vSwitch for live migration traffic
@@ -230,7 +265,7 @@ New-VMSwitch -Name "vSwitch-LiveMigration" `
     -MinimumBandwidthMode None
 ```
 
-### 4.6 Create the VM SET vSwitch
+### 5.6 Create the VM SET vSwitch
 
 ```powershell
 # Create an external SET vSwitch for VM guest traffic
@@ -244,7 +279,7 @@ New-VMSwitch -Name "vSwitch-VM" `
 
 > **Tip**: Set `-AllowManagementOS $false` on the VM vSwitch to keep host management traffic isolated from guest VM traffic.
 
-### 4.7 Add Host vNICs on SET Switches
+### 5.7 Add Host vNICs on SET Switches
 
 For management, cluster, and live migration traffic, add host virtual NICs to the SET switches:
 
@@ -259,7 +294,7 @@ Add-VMNetworkAdapter -ManagementOS -SwitchName "vSwitch-Cluster" -Name "Cluster"
 Add-VMNetworkAdapter -ManagementOS -SwitchName "vSwitch-LiveMigration" -Name "LiveMigration"
 ```
 
-### 4.8 Configure IP Addresses on Host vNICs
+### 5.8 Configure IP Addresses on Host vNICs
 
 ```powershell
 # Management vNIC — adjust IP per node (HV01=.11, HV02=.12, HV03=.13)
@@ -282,7 +317,7 @@ New-NetIPAddress -InterfaceAlias "vEthernet (LiveMigration)" `
     -PrefixLength 24
 ```
 
-### 4.9 Configure SET Team Settings
+### 5.9 Configure SET Team Settings
 
 ```powershell
 # View the SET team configuration
@@ -295,7 +330,7 @@ Set-VMSwitchTeam -Name "vSwitch-LiveMigration" -LoadBalancingAlgorithm HyperVPor
 Set-VMSwitchTeam -Name "vSwitch-VM" -LoadBalancingAlgorithm HyperVPort
 ```
 
-### 4.10 Configure QoS Policies (Optional)
+### 5.10 Configure QoS Policies (Optional)
 
 ```powershell
 # Reserve bandwidth for cluster heartbeat traffic
@@ -310,7 +345,7 @@ New-NetQosPolicy -Name "SMB" -NetDirectPortMatchCondition 445 `
     -MinBandwidthWeightAction 30
 ```
 
-### 4.11 Verify SET Configuration
+### 5.11 Verify SET Configuration
 
 ```powershell
 # Verify all SET switches
@@ -330,39 +365,6 @@ Get-VMNetworkAdapter -ManagementOS | Select-Object Name, SwitchName, IPAddresses
 # Verify connectivity - ping from each node
 Test-NetConnection -ComputerName "172.16.10.12" -InformationLevel Detailed
 Test-NetConnection -ComputerName "10.10.10.12" -InformationLevel Detailed
-```
-
----
-
-## 5. Phase 3 — Install and Configure Hyper-V Role
-
-### 5.1 Install the Hyper-V Role
-
-```powershell
-Install-WindowsFeature -Name Hyper-V `
-    -IncludeManagementTools `
-    -Restart
-```
-
-### 5.2 Configure Default Hyper-V Paths
-
-```powershell
-Set-VMHost -VirtualMachinePath "D:\Hyper-V" `
-           -VirtualHardDiskPath "D:\Hyper-V\Virtual Hard Disks"
-```
-
-### 5.3 Configure Hyper-V Host Settings
-
-```powershell
-# Enable NUMA spanning (useful for VMs larger than a single NUMA node)
-Set-VMHost -NumaSpanningEnabled $true
-
-# Configure enhanced session mode
-Set-VMHost -EnableEnhancedSessionMode $true
-
-# Set live migration settings (configured fully in Phase 8)
-Set-VMHost -MaximumVirtualMachineMigrations 2
-Set-VMHost -VirtualMachineMigrationPerformanceOption SMB
 ```
 
 ---
