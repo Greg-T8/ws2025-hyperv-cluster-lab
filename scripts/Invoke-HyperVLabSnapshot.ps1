@@ -3,9 +3,10 @@
 Creates, restores, or deletes Hyper-V VM snapshots for all Terraform lab VMs.
 
 .DESCRIPTION
-Finds Terraform lab VMs by prefix and optional VM path, then either creates a
-checkpoint on each VM, restores each VM to a checkpoint name, or deletes a
-named checkpoint from each VM.
+Targets specific lab VMs by explicit VM names or by prefix and optional VM path,
+then either creates a checkpoint on each VM, restores each VM to a checkpoint
+name, or deletes a named checkpoint from each VM. When no names or prefix are
+provided, the default target pattern is TEST-*.
 
 .CONTEXT
 3-node local Hyper-V failover cluster lab
@@ -30,6 +31,9 @@ param(
 	[string]$VmPrefix,
 
 	[Parameter()]
+	[string[]]$VmNames,
+
+	[Parameter()]
 	[string]$VmPath,
 
 	[Parameter()]
@@ -43,19 +47,28 @@ $Main = {
 	$tfVarsPath = Join-Path -Path $PSScriptRoot -ChildPath '..\terraform\terraform.tfvars'
 	$resolvedPrefix = Resolve-ParameterValue -ExplicitValue $VmPrefix -TfVarsPath $tfVarsPath -VariableName 'vm_prefix'
 	$resolvedPath = Resolve-ParameterValue -ExplicitValue $VmPath -TfVarsPath $tfVarsPath -VariableName 'vm_path'
+	$resolvedVmNames = @($VmNames | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Trim() })
+	if ([string]::IsNullOrWhiteSpace($resolvedPrefix)) {
+		$resolvedPrefix = 'TEST'
+	}
 
 	# Create a timestamped name when creating checkpoints and no name is supplied.
 	$resolvedSnapshotName = Resolve-SnapshotName -RequestedName $SnapshotName -Action $Action
 
-	# Resolve all target lab VMs and retry without path filtering when needed.
-	$targetVms = Get-TargetVm -Prefix $resolvedPrefix -PathFilter $resolvedPath
-	if ((-not $targetVms) -and (-not [string]::IsNullOrWhiteSpace($resolvedPath))) {
-		$targetVms = Get-TargetVm -Prefix $resolvedPrefix -PathFilter ''
+	# Resolve target lab VMs by explicit names when provided, otherwise use prefix/path matching.
+	$targetVms = Get-TargetVm -Prefix $resolvedPrefix -PathFilter $resolvedPath -Names $resolvedVmNames
+	if ((-not $targetVms) -and ($resolvedVmNames.Count -eq 0) -and (-not [string]::IsNullOrWhiteSpace($resolvedPath))) {
+		$targetVms = Get-TargetVm -Prefix $resolvedPrefix -PathFilter '' -Names $resolvedVmNames
 	}
 
 	# Exit with a clear error when no matching VMs are available.
 	if (-not $targetVms) {
-		throw "No VMs were found for prefix '$resolvedPrefix'. Deploy the lab VMs first or pass -VmPrefix/-VmPath explicitly."
+		if ($resolvedVmNames.Count -gt 0) {
+			$joinedNames = ($resolvedVmNames -join ', ')
+			throw "No matching VMs were found for the provided VM names: $joinedNames"
+		}
+
+		throw "No VMs were found for name pattern '$resolvedPrefix-*'. Deploy the lab VMs first or pass -VmNames/-VmPrefix/-VmPath explicitly."
 	}
 
 	# Dispatch the requested snapshot operation.
@@ -148,21 +161,33 @@ $Helpers = {
 			[string]$Prefix,
 
 			[Parameter()]
+			[string[]]$Names,
+
+			[Parameter()]
 			[AllowEmptyString()]
 			[string]$PathFilter
 		)
 
-		# Query by naming convention and apply optional path filtering.
-		$vms = Get-VM -Name "$Prefix-*" -ErrorAction SilentlyContinue |
-			Sort-Object -Property Name
-
-		# Keep only VMs that live under the Terraform VM path when one is available.
-		if (-not [string]::IsNullOrWhiteSpace($PathFilter)) {
-			$vms = $vms |
-				Where-Object {
-					$_.Path -like "$PathFilter*"
-				}
+		# Query by explicit VM names when provided; otherwise use naming convention.
+		$filteredNames = @($Names | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Trim() })
+		if ($filteredNames.Count -gt 0) {
+			$vms = foreach ($vmName in $filteredNames) {
+				Get-VM -Name $vmName -ErrorAction SilentlyContinue
+			}
 		}
+		else {
+			$vms = Get-VM -Name "$Prefix-*" -ErrorAction SilentlyContinue
+
+			# Keep only VMs that live under the Terraform VM path when one is available.
+			if (-not [string]::IsNullOrWhiteSpace($PathFilter)) {
+				$vms = $vms |
+					Where-Object {
+						$_.Path -like "$PathFilter*"
+					}
+			}
+		}
+
+		$vms = $vms | Sort-Object -Property Name -Unique
 
 		return @($vms)
 	}
