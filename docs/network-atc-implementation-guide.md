@@ -459,7 +459,7 @@ Set-NetIntentGlobalOverrides -GlobalOverrides $globalOverride
 ```powershell
 # Add or change adapters in an intent
 Set-NetIntent -Name "Management-Compute" `
-    -AdapterName "Mgmt-1", "Mgmt-2", "Mgmt-3"
+    -AdapterName "pNIC-Mgmt-1", "pNIC-Mgmt-2", "pNIC-Mgmt-3"
 ```
 
 ### 10.2 Remove a Specific Intent

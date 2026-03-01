@@ -38,10 +38,10 @@ Each cluster node uses **eight physical NICs** (or virtual NICs in a nested lab)
 
 | SET vSwitch | Member NICs | Traffic Type | Switch Type |
 |---|---|---|---|
-| `vSwitch-Mgmt` | Mgmt-1, Mgmt-2 | Host management, DNS, domain traffic | Internal |
-| `vSwitch-Cluster` | Cluster-1, Cluster-2 | Cluster heartbeat, CSV I/O | Private |
-| `vSwitch-LiveMigration` | LM-1, LM-2 | Live migration traffic | Private |
-| `vSwitch-VM` | VM-1, VM-2 | VM guest network traffic | External |
+| `vSwitch-Mgmt` | pNIC-Mgmt-1, pNIC-Mgmt-2 | Host management, DNS, domain traffic | Internal |
+| `vSwitch-Cluster` | pNIC-Cluster-1, pNIC-Cluster-2 | Cluster heartbeat, CSV I/O | Private |
+| `vSwitch-LiveMigration` | pNIC-LM-1, pNIC-LM-2 | Live migration traffic | Private |
+| `vSwitch-VM` | pNIC-VM-1, pNIC-VM-2 | VM guest network traffic | External |
 
 ### IP Addressing
 
@@ -59,14 +59,14 @@ The diagram below maps the NIC chain inside each cluster node guest OS, where VM
 graph LR
     subgraph NODE["HV01 / HV02 / HV03 — Cluster Nodes (representative)"]
         subgraph GNICS["VM vNICs (physical adapters inside guest OS)"]
-            M1["Mgmt-1"]
-            M2["Mgmt-2"]
-            C1["Cluster-1"]
-            C2["Cluster-2"]
-            LM1["LM-1"]
-            LM2["LM-2"]
-            CP1["VM-1"]
-            CP2["VM-2"]
+            M1["pNIC-Mgmt-1"]
+            M2["pNIC-Mgmt-2"]
+            C1["pNIC-Cluster-1"]
+            C2["pNIC-Cluster-2"]
+            LM1["pNIC-LM-1"]
+            LM2["pNIC-LM-2"]
+            CP1["pNIC-VM-1"]
+            CP2["pNIC-VM-2"]
         end
 
         subgraph GSET["SET Virtual Switches"]
@@ -164,8 +164,28 @@ powercfg /setactive SCHEME_MIN  # High performance
 Before creating SET switches, identify the NICs on each node:
 
 ```powershell
-Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, LinkSpeed |
-    Sort-Object InterfaceDescription | Format-Table -AutoSize
+$mapping = @{
+    1 = "pNIC-Mgmt-1"
+    2 = "pNIC-Mgmt-2"
+    3 = "pNIC-Cluster-1"
+    4 = "pNIC-Cluster-2"
+    5 = "pNIC-LM-1"
+    6 = "pNIC-LM-2"
+    7 = "pNIC-VM-1"
+    8 = "pNIC-VM-2"
+}
+
+$mapping.GetEnumerator() |
+    Sort-Object Key |
+    ForEach-Object {
+        $adapter = Get-NetAdapter -InterfaceIndex $_.Key -ErrorAction SilentlyContinue
+        if ($adapter -and $adapter.Name -ne $_.Value) {
+            Rename-NetAdapter -InterfaceIndex $_.Key -NewName $_.Value
+        }
+    }
+
+Get-NetAdapter | Select-Object InterfaceIndex, Name, InterfaceDescription, Status, LinkSpeed |
+    Sort-Object InterfaceIndex | Format-Table -AutoSize
 ```
 
 <img src='.img/2026-03-01-09-32-28.png' width=800>
@@ -179,7 +199,7 @@ Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, LinkSpeed |
 New-VMSwitch -Name "vSwitch-Mgmt" `
     -SwitchType Internal `
     -EnableEmbeddedTeaming $true `
-    -NetAdapterName "Mgmt-1", "Mgmt-2" `
+    -NetAdapterName "pNIC-Mgmt-1", "pNIC-Mgmt-2" `
     -AllowManagementOS $true `
     -MinimumBandwidthMode Weight
 ```
@@ -193,7 +213,7 @@ New-VMSwitch -Name "vSwitch-Mgmt" `
 New-VMSwitch -Name "vSwitch-Cluster" `
     -SwitchType Private `
     -EnableEmbeddedTeaming $true `
-    -NetAdapterName "Cluster-1", "Cluster-2" `
+    -NetAdapterName "pNIC-Cluster-1", "pNIC-Cluster-2" `
     -AllowManagementOS $true `
     -MinimumBandwidthMode Weight
 ```
@@ -205,7 +225,7 @@ New-VMSwitch -Name "vSwitch-Cluster" `
 New-VMSwitch -Name "vSwitch-LiveMigration" `
     -SwitchType Private `
     -EnableEmbeddedTeaming $true `
-    -NetAdapterName "LM-1", "LM-2" `
+    -NetAdapterName "pNIC-LM-1", "pNIC-LM-2" `
     -AllowManagementOS $true `
     -MinimumBandwidthMode Weight
 ```
@@ -217,7 +237,7 @@ New-VMSwitch -Name "vSwitch-LiveMigration" `
 New-VMSwitch -Name "vSwitch-VM" `
     -SwitchType External `
     -EnableEmbeddedTeaming $true `
-    -NetAdapterName "VM-1", "VM-2" `
+    -NetAdapterName "pNIC-VM-1", "pNIC-VM-2" `
     -AllowManagementOS $false `
     -MinimumBandwidthMode Weight
 ```
@@ -716,10 +736,10 @@ Invoke-Command -ComputerName "HV01", "HV02", "HV03" -ScriptBlock {
 Get-VMSwitch | Where-Object EmbeddedTeamingEnabled | Format-Table Name, SwitchType
 
 # Add a NIC to an existing SET team
-Set-VMSwitchTeam -Name "vSwitch-Mgmt" -NetAdapterName "Mgmt-1", "Mgmt-2", "Mgmt-3"
+Set-VMSwitchTeam -Name "vSwitch-Mgmt" -NetAdapterName "pNIC-Mgmt-1", "pNIC-Mgmt-2", "pNIC-Mgmt-3"
 
 # Remove a NIC from a SET team (specify remaining members)
-Set-VMSwitchTeam -Name "vSwitch-Mgmt" -NetAdapterName "Mgmt-1", "Mgmt-2"
+Set-VMSwitchTeam -Name "vSwitch-Mgmt" -NetAdapterName "pNIC-Mgmt-1", "pNIC-Mgmt-2"
 
 # Change load balancing algorithm
 Set-VMSwitchTeam -Name "vSwitch-Mgmt" -LoadBalancingAlgorithm Dynamic
