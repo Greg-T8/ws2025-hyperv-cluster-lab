@@ -117,31 +117,18 @@ powercfg /setactive SCHEME_MIN  # High performance
 | Supported in WS2025 | Deprecated | Fully supported |
 | Management plane | Separate | Unified with vSwitch |
 
-> **RDMA**: In a Cisco UCS + FCoE environment, RDMA does not apply to the storage path. It applies to host-to-host SMB Direct traffic (live migration, CSV redirected I/O) and requires RoCE-capable VICs with DCB/PFC configured end-to-end on the fabric.
-
-> **SR-IOV**: Not required for typical enterprise workloads. Applicable when VMs need near bare-metal network performance (e.g., high-throughput SQL, network appliances). SR-IOV must be enabled at vSwitch creation — it cannot be added afterward.
-
 ### 4.2 Identify Physical Adapters
 
 Before creating SET switches, identify the NICs on each node:
 
 ```powershell
 Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, LinkSpeed |
-    Format-Table -AutoSize
+    Sort-Object InterfaceDescription | Format-Table -AutoSize
 ```
 
-Example output:
+<img src='.img/2026-03-01-09-08-13.png' width=800>
 
-```
-Name       InterfaceDescription                Status LinkSpeed
-----       --------------------                ------ ---------
-Mgmt-1     Microsoft Hyper-V Network Adapter   Up     10 Gbps
-Mgmt-2     Microsoft Hyper-V Network Adapter #2 Up    10 Gbps
-Cluster-1  Microsoft Hyper-V Network Adapter #3 Up    10 Gbps
-Cluster-2  Microsoft Hyper-V Network Adapter #4 Up    10 Gbps
-Compute-1  Microsoft Hyper-V Network Adapter #5 Up    10 Gbps
-Compute-2  Microsoft Hyper-V Network Adapter #6 Up    10 Gbps
-```
+<img src='.img/2026-03-01-09-08-29.png' width=800>
 
 ### 4.3 Create the Management SET vSwitch
 
