@@ -63,12 +63,12 @@ Invoke-Command -ComputerName "HV01", "HV02", "HV03" -ScriptBlock {
     # Rename based on MAC or slot — adapt to your environment
     Get-NetAdapter | Sort-Object InterfaceDescription | ForEach-Object -Begin { $i = 1 } -Process {
         $mapping = @{
-            1 = "Mgmt-1"
-            2 = "Mgmt-2"
-            3 = "Storage-1"
-            4 = "Storage-2"
-            5 = "Compute-1"
-            6 = "Compute-2"
+            1 = "pNIC-Mgmt-1"
+            2 = "pNIC-Mgmt-2"
+            3 = "pNIC-Stor-1"
+            4 = "pNIC-Stor-2"
+            5 = "pNIC-Comp-1"
+            6 = "pNIC-Comp-2"
         }
         if ($mapping.ContainsKey($i)) {
             Rename-NetAdapter -Name $_.Name -NewName $mapping[$i]
@@ -141,8 +141,8 @@ Based on the lab architecture (6 NICs per node, 3 traffic types), the following 
 
 | Intent Name | Traffic Types | NICs | Purpose |
 |---|---|---|---|
-| `Management-Compute` | Management, Compute | Mgmt-1, Mgmt-2 | Host management + VM guest traffic |
-| `Storage` | Storage | Storage-1, Storage-2 | CSV traffic, live migration, RDMA |
+| `Management-Compute` | Management, Compute | pNIC-Mgmt-1, pNIC-Mgmt-2 | Host management + VM guest traffic |
+| `Storage` | Storage | pNIC-Stor-1, pNIC-Stor-2 | CSV traffic, live migration, RDMA |
 
 > **Design Decision**: Management and Compute are combined into a single intent because they commonly share the same physical uplinks. Storage gets a dedicated intent with its own NICs for optimal RDMA and CSV performance.
 
@@ -152,9 +152,9 @@ For environments with enough NICs, you can create fully separated intents:
 
 | Intent Name | Traffic Types | NICs |
 |---|---|---|
-| `Management` | Management | Mgmt-1, Mgmt-2 |
-| `Compute` | Compute | Compute-1, Compute-2 |
-| `Storage` | Storage | Storage-1, Storage-2 |
+| `Management` | Management | pNIC-Mgmt-1, pNIC-Mgmt-2 |
+| `Compute` | Compute | pNIC-Comp-1, pNIC-Comp-2 |
+| `Storage` | Storage | pNIC-Stor-1, pNIC-Stor-2 |
 
 ### 5.3 Supported Traffic Type Combinations
 
@@ -186,7 +186,7 @@ Add-NetIntent -ClusterName "HV-Cluster" `
     -Name "Management-Compute" `
     -Management `
     -Compute `
-    -AdapterName "Mgmt-1", "Mgmt-2"
+    -AdapterName "pNIC-Mgmt-1", "pNIC-Mgmt-2"
 ```
 
 ```powershell
@@ -194,7 +194,7 @@ Add-NetIntent -ClusterName "HV-Cluster" `
 Add-NetIntent -ClusterName "HV-Cluster" `
     -Name "Storage" `
     -Storage `
-    -AdapterName "Storage-1", "Storage-2"
+    -AdapterName "pNIC-Stor-1", "pNIC-Stor-2"
 ```
 
 ### 6.2 Option B — Standalone Node Intent (Pre-Cluster)
@@ -206,11 +206,11 @@ If Network ATC intents need to be deployed **before** the cluster is formed:
 Add-NetIntent -Name "Management-Compute" `
     -Management `
     -Compute `
-    -AdapterName "Mgmt-1", "Mgmt-2"
+    -AdapterName "pNIC-Mgmt-1", "pNIC-Mgmt-2"
 
 Add-NetIntent -Name "Storage" `
     -Storage `
-    -AdapterName "Storage-1", "Storage-2"
+    -AdapterName "pNIC-Stor-1", "pNIC-Stor-2"
 ```
 
 > **Important**: Standalone intents are local to each node. After forming the cluster, convert them to cluster-scoped intents by removing and re-adding with `-ClusterName`.
@@ -246,14 +246,14 @@ After successful provisioning, Network ATC will have created:
 
 **For the Management-Compute intent:**
 
-- A SET vSwitch named `Management-Compute` with `Mgmt-1` and `Mgmt-2` teamed
+- A SET vSwitch named `Management-Compute` with `pNIC-Mgmt-1` and `pNIC-Mgmt-2` teamed
 - A host vNIC for management traffic
 - QoS policies for management traffic
 - Bandwidth reservation for management
 
 **For the Storage intent:**
 
-- A SET vSwitch named `Storage` with `Storage-1` and `Storage-2` teamed
+- A SET vSwitch named `Storage` with `pNIC-Stor-1` and `pNIC-Stor-2` teamed
 - Two host vNICs for storage traffic (one per physical NIC for RDMA)
 - RDMA enabled and configured (if hardware supports it)
 - QoS policies for SMB/CSV traffic
@@ -402,7 +402,7 @@ $storageOverride.EnableAutomaticIPGeneration = $false
 Add-NetIntent -ClusterName "HV-Cluster" `
     -Name "Storage" `
     -Storage `
-    -AdapterName "Storage-1", "Storage-2" `
+    -AdapterName "pNIC-Stor-1", "pNIC-Stor-2" `
     -AdapterPropertyOverrides $adapterOverride `
     -StorageOverrides $storageOverride `
     -StorageVlans 711, 712
@@ -433,7 +433,7 @@ Add-NetIntent -ClusterName "HV-Cluster" `
     -Name "Management-Compute" `
     -Management `
     -Compute `
-    -AdapterName "Mgmt-1", "Mgmt-2" `
+    -AdapterName "pNIC-Mgmt-1", "pNIC-Mgmt-2" `
     -SiteOverrides $siteOverride
 ```
 
@@ -535,10 +535,10 @@ Restart-Service -Name "ovsdb-server" -Force
 
 # Re-create intents
 Add-NetIntent -ClusterName "HV-Cluster" -Name "Management-Compute" `
-    -Management -Compute -AdapterName "Mgmt-1", "Mgmt-2"
+    -Management -Compute -AdapterName "pNIC-Mgmt-1", "pNIC-Mgmt-2"
 
 Add-NetIntent -ClusterName "HV-Cluster" -Name "Storage" `
-    -Storage -AdapterName "Storage-1", "Storage-2"
+    -Storage -AdapterName "pNIC-Stor-1", "pNIC-Stor-2"
 ```
 
 ### 11.4 Disable RDMA for Non-RDMA NICs
@@ -552,7 +552,7 @@ $adapterOverride.NetworkDirect = 0  # Disable RDMA
 Add-NetIntent -ClusterName "HV-Cluster" `
     -Name "Storage" `
     -Storage `
-    -AdapterName "Storage-1", "Storage-2" `
+    -AdapterName "pNIC-Stor-1", "pNIC-Stor-2" `
     -AdapterPropertyOverrides $adapterOverride
 ```
 
@@ -603,12 +603,12 @@ New-Cluster -Name "HV-Cluster" -Node "HV01", "HV02", "HV03" `
 Add-NetIntent -ClusterName "HV-Cluster" `
     -Name "Management-Compute" `
     -Management -Compute `
-    -AdapterName "Mgmt-1", "Mgmt-2"
+    -AdapterName "pNIC-Mgmt-1", "pNIC-Mgmt-2"
 
 Add-NetIntent -ClusterName "HV-Cluster" `
     -Name "Storage" `
     -Storage `
-    -AdapterName "Storage-1", "Storage-2"
+    -AdapterName "pNIC-Stor-1", "pNIC-Stor-2"
 
 # 5. Wait for provisioning
 do {

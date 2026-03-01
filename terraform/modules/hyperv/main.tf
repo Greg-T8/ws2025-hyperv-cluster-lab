@@ -200,7 +200,7 @@ resource "hyperv_machine_instance" "cluster_node" {
     wait_for_ips         = false
   }
 
-  # Attach two adapters for cluster management and live migration.
+  # Attach two adapters for cluster heartbeat and management on private switch.
   network_adaptors {
     name                 = "Cluster-1"
     switch_name          = var.cluster_switch_name
@@ -211,6 +211,23 @@ resource "hyperv_machine_instance" "cluster_node" {
 
   network_adaptors {
     name                 = "Cluster-2"
+    switch_name          = var.cluster_switch_name
+    allow_teaming        = "On"
+    mac_address_spoofing = "On"
+    wait_for_ips         = false
+  }
+
+  # Attach two dedicated adapters for live migration traffic on private switch.
+  network_adaptors {
+    name                 = "LM-1"
+    switch_name          = var.cluster_switch_name
+    allow_teaming        = "On"
+    mac_address_spoofing = "On"
+    wait_for_ips         = false
+  }
+
+  network_adaptors {
+    name                 = "LM-2"
     switch_name          = var.cluster_switch_name
     allow_teaming        = "On"
     mac_address_spoofing = "On"
@@ -300,6 +317,18 @@ resource "hyperv_machine_instance" "cluster_node" {
     boot_order {
       boot_type            = "NetworkAdapter"
       network_adapter_name = "Cluster-2"
+      switch_name          = var.cluster_switch_name
+    }
+
+    boot_order {
+      boot_type            = "NetworkAdapter"
+      network_adapter_name = "LM-1"
+      switch_name          = var.cluster_switch_name
+    }
+
+    boot_order {
+      boot_type            = "NetworkAdapter"
+      network_adapter_name = "LM-2"
       switch_name          = var.cluster_switch_name
     }
 

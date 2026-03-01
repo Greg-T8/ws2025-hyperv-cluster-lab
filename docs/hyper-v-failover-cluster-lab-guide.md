@@ -117,6 +117,10 @@ powercfg /setactive SCHEME_MIN  # High performance
 | Supported in WS2025 | Deprecated | Fully supported |
 | Management plane | Separate | Unified with vSwitch |
 
+> **RDMA**: In a Cisco UCS + FCoE environment, RDMA does not apply to the storage path. It applies to host-to-host SMB Direct traffic (live migration, CSV redirected I/O) and requires RoCE-capable VICs with DCB/PFC configured end-to-end on the fabric.
+
+> **SR-IOV**: Not required for typical enterprise workloads. Applicable when VMs need near bare-metal network performance (e.g., high-throughput SQL, network appliances). SR-IOV must be enabled at vSwitch creation — it cannot be added afterward.
+
 ### 4.2 Identify Physical Adapters
 
 Before creating SET switches, identify the NICs on each node:

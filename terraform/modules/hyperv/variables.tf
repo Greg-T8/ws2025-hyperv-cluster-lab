@@ -59,7 +59,7 @@ variable "management_switch_name" {
 }
 
 variable "cluster_switch_name" {
-  description = "Name of the private switch used for cluster management and live migration"
+  description = "Name of the private switch used for cluster heartbeat and live migration adapters"
   type        = string
 }
 
