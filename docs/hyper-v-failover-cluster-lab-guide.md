@@ -38,9 +38,9 @@ Each cluster node uses **eight physical NICs** (or virtual NICs in a nested lab)
 
 | SET vSwitch | Member NICs | Traffic Type | Switch Type |
 |---|---|---|---|
-| `vSwitch-Mgmt` | pNIC-Mgmt-1, pNIC-Mgmt-2 | Host management, DNS, domain traffic | Internal |
-| `vSwitch-Cluster` | pNIC-Cluster-1, pNIC-Cluster-2 | Cluster heartbeat, CSV I/O | Private |
-| `vSwitch-LiveMigration` | pNIC-LM-1, pNIC-LM-2 | Live migration traffic | Private |
+| `vSwitch-Mgmt` | pNIC-Mgmt-1, pNIC-Mgmt-2 | Host management, DNS, domain traffic | External |
+| `vSwitch-Cluster` | pNIC-Cluster-1, pNIC-Cluster-2 | Cluster heartbeat, CSV I/O | External |
+| `vSwitch-LiveMigration` | pNIC-LM-1, pNIC-LM-2 | Live migration traffic | External |
 | `vSwitch-VM` | pNIC-VM-1, pNIC-VM-2 | VM guest network traffic | External |
 
 ### IP Addressing
@@ -70,9 +70,9 @@ graph LR
         end
 
         subgraph GSET["SET Virtual Switches"]
-            SET_M["vSwitch-Mgmt\nSET · Internal"]
-            SET_C["vSwitch-Cluster\nSET · Private"]
-            SET_LM["vSwitch-LiveMigration\nSET · Private"]
+            SET_M["vSwitch-Mgmt\nSET · External"]
+            SET_C["vSwitch-Cluster\nSET · External"]
+            SET_LM["vSwitch-LiveMigration\nSET · External"]
             SET_CP["vSwitch-VM\nSET · External"]
         end
 
@@ -195,39 +195,39 @@ Get-NetAdapter | Select-Object InterfaceIndex, Name, InterfaceDescription, Statu
 ### 4.3 Create the Management SET vSwitch
 
 ```powershell
-# Create an internal SET vSwitch for management traffic
+# Create an external SET vSwitch for management traffic
 New-VMSwitch -Name "vSwitch-Mgmt" `
-    -SwitchType Internal `
+    -SwitchType External `
     -EnableEmbeddedTeaming $true `
     -NetAdapterName "pNIC-Mgmt-1", "pNIC-Mgmt-2" `
     -AllowManagementOS $true `
-    -MinimumBandwidthMode Weight
+    -MinimumBandwidthMode None
 ```
 
-> **Note**: When using `-SwitchType Internal` or `-SwitchType External` with `-EnableEmbeddedTeaming $true`, you combine NIC teaming and vSwitch creation into a single step. The `-NetAdapterName` parameter accepts an array of adapter names to team.
+> **Note**: When using `-SwitchType External` with `-EnableEmbeddedTeaming $true`, you combine NIC teaming and vSwitch creation into a single step. The `-NetAdapterName` parameter accepts an array of adapter names to team.
 
 ### 4.4 Create the Cluster SET vSwitch
 
 ```powershell
-# Create a private SET vSwitch for cluster heartbeat and CSV traffic
+# Create an external SET vSwitch for cluster heartbeat and CSV traffic
 New-VMSwitch -Name "vSwitch-Cluster" `
-    -SwitchType Private `
+    -SwitchType External `
     -EnableEmbeddedTeaming $true `
     -NetAdapterName "pNIC-Cluster-1", "pNIC-Cluster-2" `
     -AllowManagementOS $true `
-    -MinimumBandwidthMode Weight
+    -MinimumBandwidthMode None
 ```
 
 ### 4.5 Create the Live Migration SET vSwitch
 
 ```powershell
-# Create a private SET vSwitch for live migration traffic
+# Create an external SET vSwitch for live migration traffic
 New-VMSwitch -Name "vSwitch-LiveMigration" `
-    -SwitchType Private `
+    -SwitchType External `
     -EnableEmbeddedTeaming $true `
     -NetAdapterName "pNIC-LM-1", "pNIC-LM-2" `
     -AllowManagementOS $true `
-    -MinimumBandwidthMode Weight
+    -MinimumBandwidthMode None
 ```
 
 ### 4.6 Create the VM SET vSwitch
@@ -239,7 +239,7 @@ New-VMSwitch -Name "vSwitch-VM" `
     -EnableEmbeddedTeaming $true `
     -NetAdapterName "pNIC-VM-1", "pNIC-VM-2" `
     -AllowManagementOS $false `
-    -MinimumBandwidthMode Weight
+    -MinimumBandwidthMode None
 ```
 
 > **Tip**: Set `-AllowManagementOS $false` on the VM vSwitch to keep host management traffic isolated from guest VM traffic.
