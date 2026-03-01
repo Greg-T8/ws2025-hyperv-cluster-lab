@@ -53,6 +53,9 @@ $Main = {
     $ClusterNodes = Get-ClusterNodeList
     $ClusterNodeInternalIPs = Get-ClusterNodeInternalIpList
 
+    # Power on cluster nodes so Windows installation begins immediately.
+    Start-ClusterNodeVMs -VmNames $ClusterNodes
+
     # Launch parallel background waits for cluster node Windows installations.
     $nodeJobs = Start-ParallelNodeWait -VmNames $ClusterNodes -GuestCredential $GuestCredential
 

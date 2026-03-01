@@ -44,30 +44,32 @@ A single-forest AD domain (`test.lab` by default) is promoted on the dedicated d
 ## Repository Structure
 
 ```
+scripts/
+├── Confirm-LocalAdminCredential.ps1
+├── Invoke-HyperVLabSnapshot.ps1
+└── Invoke-TerraformApply.ps1          # Wrapper for terraform apply with credentials
 terraform/
-├── main.tf                 # Root module — wires hyperv and active-directory modules
-├── variables.tf            # All input variable declarations
-├── outputs.tf              # VM names, disk paths, and DC name outputs
-├── providers.tf            # Hyper-V provider configuration (WinRM over HTTP)
-├── versions.tf             # Terraform and provider version constraints
-├── terraform.tfvars        # Default variable values (customize before applying)
+├── main.tf                            # Root module — wires hyperv and active-directory modules
+├── variables.tf                       # All input variable declarations
+├── outputs.tf                         # VM names, disk paths, and DC name outputs
+├── providers.tf                       # Hyper-V provider configuration (WinRM over HTTP)
+├── versions.tf                        # Terraform and provider version constraints
+├── terraform.tfvars                   # Default variable values (customize before applying)
 ├── modules/
-│   ├── hyperv/             # Hyper-V VMs, VHDs, and network adapter resources
-│   │   ├── main.tf         # VM, VHD, DVD drives, firmware boot order
-│   │   ├── locals.tf       # Computed names, paths, disk maps
-│   │   ├── variables.tf    # Module input variables with validation
-│   │   ├── outputs.tf      # Module outputs
-│   │   └── versions.tf     # Provider version constraints
-│   └── active-directory/   # AD forest promotion and domain join automation
+│   ├── hyperv/                        # Hyper-V VMs, VHDs, and network adapter resources
+│   │   ├── main.tf                    # VM, VHD, DVD drives, firmware boot order
+│   │   ├── locals.tf                  # Computed names, paths, disk maps
+│   │   ├── variables.tf               # Module input variables with validation
+│   │   ├── outputs.tf                 # Module outputs
+│   │   └── versions.tf                # Provider version constraints
+│   └── active-directory/              # AD forest promotion and domain join automation
 │       ├── main.tf
 │       ├── variables.tf
 │       └── outputs.tf
 └── scripts/
-    ├── autounattend-dc.xml             # Unattended answer file for domain controller
-    ├── autounattend-node.xml           # Unattended answer file for cluster nodes
-    ├── Confirm-LocalAdminCredential.ps1
-    ├── Invoke-DomainBootstrap.ps1      # PowerShell Direct guest bootstrap script
-    └── Invoke-TerraformApply.ps1       # Wrapper for terraform apply with credentials
+    ├── autounattend-dc.xml            # Unattended answer file for domain controller
+    ├── autounattend-node.xml          # Unattended answer file for cluster nodes
+    └── Invoke-DomainBootstrap.ps1     # PowerShell Direct guest bootstrap script
 docs/
 ├── hyper-v-failover-cluster-lab-guide.md
 ├── network-atc-implementation-guide.md
@@ -165,6 +167,25 @@ Both answer files use the Windows Server 2025 Datacenter KMS client setup key: `
 ---
 
 ## Usage
+
+### Script Locations
+
+Use the script directories based on how scripts are executed:
+
+- Manual operational scripts: `scripts/`
+- Terraform-invoked scripts and artifacts: `terraform/scripts/`
+
+Top-level manual scripts:
+
+- `scripts/Invoke-HyperVLabSnapshot.ps1` - Create, revert, or delete snapshots across lab VMs
+- `scripts/Confirm-LocalAdminCredential.ps1` - Validate Hyper-V local admin credentials
+- `scripts/Invoke-TerraformApply.ps1` - Wrapper for `terraform apply`
+
+Terraform automation scripts/artifacts:
+
+- `terraform/scripts/Invoke-DomainBootstrap.ps1` - Guest bootstrap script invoked by Terraform
+- `terraform/scripts/autounattend-dc.xml` - Domain controller unattended setup file
+- `terraform/scripts/autounattend-node.xml` - Cluster node unattended setup file
 
 ### 1. Build the Custom ISO
 

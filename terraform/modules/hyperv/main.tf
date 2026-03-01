@@ -37,6 +37,32 @@ resource "hyperv_vhd" "shared_witness" {
   vhd_type = "Fixed"
 }
 
+# Create SMB share for shared VHDX storage used by cluster nodes.
+resource "terraform_data" "smb_share" {
+  input = {
+    share_name = local.smb_share_name
+    share_path = local.shared_disk_folder
+  }
+
+  # Create the SMB share if it does not already exist.
+  provisioner "local-exec" {
+    command     = "if (-not (Get-SmbShare -Name '${local.smb_share_name}' -ErrorAction SilentlyContinue)) { New-SmbShare -Name '${local.smb_share_name}' -Path '${local.shared_disk_folder}' -FullAccess 'Everyone' | Out-Null; Write-Host 'Created SMB share ${local.smb_share_name}' } else { Write-Host 'SMB share ${local.smb_share_name} already exists' }"
+    interpreter = ["powershell", "-NoProfile", "-Command"]
+  }
+
+  # Remove the SMB share on destroy.
+  provisioner "local-exec" {
+    when        = destroy
+    command     = "Remove-SmbShare -Name '${self.input.share_name}' -Force -ErrorAction SilentlyContinue"
+    interpreter = ["powershell", "-NoProfile", "-Command"]
+  }
+
+  depends_on = [
+    hyperv_vhd.shared_csv,
+    hyperv_vhd.shared_witness,
+  ]
+}
+
 # Create and configure the Active Directory domain controller VM.
 resource "hyperv_machine_instance" "domain_controller" {
   name                 = local.domain_controller_name
@@ -216,9 +242,9 @@ resource "hyperv_machine_instance" "cluster_node" {
     path                = hyperv_vhd.os_disk[each.value].path
   }
 
-  # NOTE: Shared CSV and witness disks require VHD Set (.vhds) or ReFS for
-  # persistent SCSI reservations on a standalone Hyper-V host. NTFS does not
-  # support shared VHDX. Attach these disks during cluster setup instead.
+  # NOTE: Shared CSV and witness disks are attached manually during cluster
+  # setup because the D: drive is NTFS, which does not support shared VHDX
+  # with persistent SCSI reservations (requires ReFS or VHD Set).
 
   # Attach installation ISO to DVD drive.
   dvd_drives {
@@ -309,5 +335,8 @@ resource "hyperv_machine_instance" "cluster_node" {
     ]
   }
 
-  depends_on = [hyperv_machine_instance.domain_controller]
+  depends_on = [
+    hyperv_machine_instance.domain_controller,
+    terraform_data.smb_share,
+  ]
 }

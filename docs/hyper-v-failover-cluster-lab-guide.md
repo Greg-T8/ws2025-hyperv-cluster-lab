@@ -305,7 +305,9 @@ Set-VMHost -VirtualMachineMigrationPerformanceOption SMB
 
 ### 6.1 Prepare Shared Storage
 
-For a physical cluster, shared storage is typically provided by an iSCSI target, Fibre Channel SAN, or Storage Spaces Direct (S2D). In this nested lab, shared VHDX disks emulate shared storage.
+For a physical cluster, shared storage is typically provided by an iSCSI target, Fibre Channel SAN, or Storage Spaces Direct (S2D). In this nested lab, you can use either shared VHDX disks or SMB file shares.
+
+> **SMB Alternative**: For an SMB-based approach that uses a file share on the domain controller instead of shared VHDX disks, see the [SMB Shared Storage Setup](smb-shared-storage-setup.md) walkthrough. If using SMB storage, skip the remainder of this section and proceed to [Phase 5 — Active Directory Preparation](#7-phase-5--active-directory-preparation).
 
 #### Initialize Shared Disks (on the first node only)
 
