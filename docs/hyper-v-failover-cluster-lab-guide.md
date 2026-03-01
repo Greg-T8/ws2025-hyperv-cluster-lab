@@ -159,9 +159,11 @@ Install-WindowsFeature -Name Hyper-V `
 ### 4.2 Configure Default Hyper-V Paths
 
 ```powershell
-Set-VMHost -VirtualMachinePath "D:\Hyper-V" `
-           -VirtualHardDiskPath "D:\Hyper-V\Virtual Hard Disks"
+Set-VMHost -VirtualMachinePath "C:\Hyper-V" `
+           -VirtualHardDiskPath "C:\Hyper-V"
 ```
+
+> **Note**: This initial path is intended for early host setup. After Cluster Shared Volumes are configured in Phase 7, update both defaults to `C:\ClusterStorage\Volume1` in Step 9.5.
 
 ### 4.3 Configure Hyper-V Host Settings
 
@@ -174,7 +176,6 @@ Set-VMHost -EnableEnhancedSessionMode $true
 
 # Set live migration settings (configured fully in Phase 8)
 Set-VMHost -MaximumVirtualMachineMigrations 2
-Set-VMHost -VirtualMachineMigrationPerformanceOption SMB
 ```
 
 ---
@@ -232,52 +233,71 @@ Get-NetAdapter | Select-Object InterfaceIndex, Name, InterfaceDescription, Statu
 ```powershell
 # Create an external SET vSwitch for management traffic
 New-VMSwitch -Name "vSwitch-Mgmt" `
-    -SwitchType External `
     -EnableEmbeddedTeaming $true `
     -NetAdapterName "pNIC-Mgmt-1", "pNIC-Mgmt-2" `
     -AllowManagementOS $true `
     -MinimumBandwidthMode None
+
+# Rename the host vNIC created by New-VMSwitch to match naming convention
+Rename-NetAdapter -Name "vEthernet (vSwitch-Mgmt)" -NewName "vEthernet (Management)"
 ```
 
-> **Note**: When using `-SwitchType External` with `-EnableEmbeddedTeaming $true`, you combine NIC teaming and vSwitch creation into a single step. The `-NetAdapterName` parameter accepts an array of adapter names to team.
+> **Note**: The host will temporarily lose RDP connectivity (~30s) while the external virtual switch is created. During this process, network binding moves from the physical NIC to the new host virtual NIC (`vEthernet`), and the management IP configuration is carried over.
+
+<img src='.img/2026-03-01-10-38-04.png' width=500>
 
 ### 5.4 Create the Cluster SET vSwitch
 
 ```powershell
 # Create an external SET vSwitch for cluster heartbeat and CSV traffic
 New-VMSwitch -Name "vSwitch-Cluster" `
-    -SwitchType External `
     -EnableEmbeddedTeaming $true `
     -NetAdapterName "pNIC-Cluster-1", "pNIC-Cluster-2" `
     -AllowManagementOS $true `
     -MinimumBandwidthMode None
+
+# Rename the host vNIC created by New-VMSwitch to match naming convention
+Rename-NetAdapter -Name "vEthernet (vSwitch-Cluster)" -NewName "vEthernet (Cluster)"
 ```
+
+<img src='.img/2026-03-01-10-32-00.png' width=800>
 
 ### 5.5 Create the Live Migration SET vSwitch
 
 ```powershell
 # Create an external SET vSwitch for live migration traffic
 New-VMSwitch -Name "vSwitch-LiveMigration" `
-    -SwitchType External `
     -EnableEmbeddedTeaming $true `
     -NetAdapterName "pNIC-LM-1", "pNIC-LM-2" `
     -AllowManagementOS $true `
     -MinimumBandwidthMode None
+
+# Rename the host vNIC created by New-VMSwitch to match naming convention
+Rename-NetAdapter -Name "vEthernet (vSwitch-LiveMigration)" -NewName "vEthernet (LiveMigration)"
 ```
+
+<img src='.img/2026-03-01-10-35-09.png' width=800>
 
 ### 5.6 Create the VM SET vSwitch
 
 ```powershell
 # Create an external SET vSwitch for VM guest traffic
 New-VMSwitch -Name "vSwitch-VM" `
-    -SwitchType External `
     -EnableEmbeddedTeaming $true `
     -NetAdapterName "pNIC-VM-1", "pNIC-VM-2" `
     -AllowManagementOS $false `
     -MinimumBandwidthMode None
 ```
 
+<img src='.img/2026-03-01-10-35-31.png' width=600>
+
 > **Tip**: Set `-AllowManagementOS $false` on the VM vSwitch to keep host management traffic isolated from guest VM traffic.
+
+Here's a look at all adapters after virtual switch creation:
+
+<img src='.img/2026-03-01-10-40-37.png' width=800>
+
+<img src='.img/2026-03-01-10-42-03.png' width=700>
 
 ### 5.7 Add Host vNICs on SET Switches
 
@@ -592,6 +612,15 @@ Get-ClusterSharedVolume | Select-Object Name, State, OwnerNode |
 Invoke-Command -ComputerName "HV01", "HV02", "HV03" -ScriptBlock {
     Test-Path "C:\ClusterStorage\Volume1"
 }
+```
+
+### 9.5 Update Default Hyper-V Paths to CSV
+
+After CSV is online, point the default VM and VHDX paths to the shared volume on each cluster node:
+
+```powershell
+Set-VMHost -VirtualMachinePath "C:\ClusterStorage\Volume1" `
+           -VirtualHardDiskPath "C:\ClusterStorage\Volume1"
 ```
 
 ---
