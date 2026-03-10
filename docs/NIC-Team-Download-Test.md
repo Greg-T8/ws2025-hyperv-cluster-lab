@@ -11,13 +11,12 @@ Measure-Command {
 
 **Result**: No significant difference was observed between the standalone NIC, the LFBO NIC team, and the SET NIC team, with all achieving similar download speeds.
 
-**Standalone NIC**:
-
+**Standalone NIC**:  
 <img src='.img/2026-03-10-14-57-37.png' width=600>
 <img src='.img/2026-03-10-14-57-56.png' width=600>
 <img src='.img/2026-03-10-14-58-22.png' width=600>
 
-**LFBO Team**:
+**LFBO Team**:  
 <img src='.img/2026-03-10-14-58-43.png' width=300>
 <img src='.img/2026-03-10-14-58-50.png' width=300>
 
@@ -25,7 +24,7 @@ Measure-Command {
 <img src='.img/2026-03-10-14-59-16.png' width=600>
 <img src='.img/2026-03-10-14-59-22.png' width=600>
 
-**SET Team**:
+**SET Team**:  
 <img src='.img/2026-03-10-14-59-36.png' width=400>
 <img src='.img/2026-03-10-15-00-01.png' width=600>
 <img src='.img/2026-03-10-15-01-25.png' width=600>
