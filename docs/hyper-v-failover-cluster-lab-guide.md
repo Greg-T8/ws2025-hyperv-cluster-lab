@@ -275,6 +275,8 @@ New-VMSwitch -Name "Interconnect" `
 
 # Rename the default host vNIC and add a second host vNIC on the same switch
 Rename-NetAdapter -Name "vEthernet (Interconnect)" -NewName "vEthernet (InterConnect - Cluster Heartbeat)"
+# Keep the Hyper-V management vNIC object name aligned with the renamed host NIC alias
+Rename-VMNetworkAdapter -ManagementOS -Name "Interconnect" -NewName "InterConnect - Cluster Heartbeat"
 Add-VMNetworkAdapter -ManagementOS -Name "InterConnect - Live Migration" -SwitchName "Interconnect"
 ```
 
@@ -303,9 +305,10 @@ Enable MTU 9000 on the Interconnect host vNICs for Live Migration and Storage (C
 
 ```powershell
 # Enable Jumbo Frames on Interconnect host vNICs (MTU 9000 — Platinum QoS alignment)
-Get-NetAdapter -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthernet (InterConnect - Live Migration)" | ForEach-Object {
+Get-NetAdapter -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthernet (InterConnect - Live Migration)" | 
+  ForEach-Object {
     Set-NetAdapterAdvancedProperty -Name $_.Name -DisplayName "Jumbo Packet" -DisplayValue "9014 Bytes"
-}
+  }
 ```
 
 > **Note**: Ensure UCS vNIC policies and upstream switching also use MTU 9000 end-to-end. VM networks use 1500 or 9000 depending on workload requirements.
@@ -353,11 +356,12 @@ Set-VMNetworkAdapter -ManagementOS -Name "InterConnect - Live Migration" -Minimu
 Set-VMNetworkAdapter -ManagementOS -Name "InterConnect - Cluster Heartbeat" -MinimumBandwidthWeight 10
 ```
 
+<img src='.img/2026-04-07-15-15-41.png' width=800>  
+
 Rationale:
 
 - Live Migration benefits from burst throughput — weight 50 gives priority when contention exists
-- Cluster heartbeat traffic requires low latency but minimal bandwidth — weight 10 is sufficient
-- Remaining bandwidth is available for SMB/CSV traffic without artificial limits
+- Cluster heartbeat traffic requires low latency but minimal bandwidth — weight 10 is sufficient; the 10 weight guarantees ~16.7% (10 / (50 + 10)) of the congested egress bandwidth from the InterConnect vSwitch
 
 ### 5.9 NIC Features and Tuning (Physical Host)
 
