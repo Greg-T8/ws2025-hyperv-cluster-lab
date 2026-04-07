@@ -147,10 +147,10 @@ variable "management_switch_name" {
   default     = "Ethernet vSwitch"
 }
 
-variable "cluster_switch_name" {
-  description = "Name of the private switch used for cluster management and live migration"
+variable "interconnect_switch_name" {
+  description = "Name of the switch used for combined cluster and live migration adapters"
   type        = string
-  default     = "Private vSwitch"
+  default     = "Interconnect"
 }
 
 variable "internal_switch_name" {

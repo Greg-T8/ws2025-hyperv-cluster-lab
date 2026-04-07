@@ -21,7 +21,7 @@ module "hyperv" {
   memory_maximum_bytes = var.memory_maximum_bytes
 
   management_switch_name = var.management_switch_name
-  cluster_switch_name    = var.cluster_switch_name
+  interconnect_switch_name = var.interconnect_switch_name
   internal_switch_name   = var.internal_switch_name
 
   os_disk_size_gb      = var.os_disk_size_gb

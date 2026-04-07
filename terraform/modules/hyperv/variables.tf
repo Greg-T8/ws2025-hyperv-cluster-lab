@@ -58,8 +58,8 @@ variable "management_switch_name" {
   type        = string
 }
 
-variable "cluster_switch_name" {
-  description = "Name of the private switch used for cluster heartbeat and live migration adapters"
+variable "interconnect_switch_name" {
+  description = "Name of the switch used for combined cluster heartbeat and live migration adapters"
   type        = string
 }
 
