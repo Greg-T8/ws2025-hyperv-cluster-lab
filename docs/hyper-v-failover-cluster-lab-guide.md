@@ -52,19 +52,16 @@ graph LR
         subgraph GNICS["VM vNICs (physical adapters inside guest OS)"]
             M1["pNIC-Mgmt-1"]
             M2["pNIC-Mgmt-2"]
-            C1["pNIC-Cluster-1"]
-            C2["pNIC-Cluster-2"]
-            LM1["pNIC-LM-1"]
-            LM2["pNIC-LM-2"]
-            CP1["pNIC-VM-1"]
-            CP2["pNIC-VM-2"]
+            IC1["pNIC-Interconnect-1"]
+            IC2["pNIC-Interconnect-2"]
+            CP1["pNIC-Compute-1"]
+            CP2["pNIC-Compute-2"]
         end
 
         subgraph GSET["SET Virtual Switches"]
-            SET_M["vSwitch-Mgmt\nSET · External"]
-            SET_C["vSwitch-Cluster\nSET · External"]
-            SET_LM["vSwitch-LiveMigration\nSET · External"]
-            SET_CP["vSwitch-VM\nSET · External"]
+            SET_M["Mgmt\nSET · External"]
+            SET_I["Interconnect\nSET · External"]
+            SET_CP["Compute\nSET · External"]
         end
 
         subgraph GVNICS["Host vNICs"]
@@ -74,12 +71,11 @@ graph LR
         end
 
         M1 & M2 --> SET_M
-        C1 & C2 --> SET_C
-        LM1 & LM2 --> SET_LM
+        IC1 & IC2 --> SET_I
         CP1 & CP2 --> SET_CP
         SET_M --> HV_MGMT
-        SET_C --> HV_CLUS
-        SET_LM --> HV_LM
+        SET_I --> HV_CLUS
+        SET_I --> HV_LM
     end
 
     classDef mgmt fill:#DCEEFF,stroke:#2F78C4,stroke-width:1px,color:#1F2937;
@@ -88,8 +84,7 @@ graph LR
     classDef vmnet fill:#FFE8CC,stroke:#C46A1A,stroke-width:1px,color:#1F2937;
 
     class M1,M2,SET_M,HV_MGMT mgmt;
-    class C1,C2,SET_C,HV_CLUS cluster;
-    class LM1,LM2,SET_LM,HV_LM livemig;
+    class IC1,IC2,SET_I,HV_CLUS,HV_LM cluster;
     class CP1,CP2,SET_CP vmnet;
 
     style NODE fill:#F6FAFD,stroke:#9FB3C8,stroke-width:1px,color:#1F2937
@@ -100,14 +95,13 @@ graph LR
 
 ### Network Design
 
-Each cluster node uses **eight physical NICs** (or virtual NICs in a nested lab) organized into four SET teams:
+Each cluster node uses **six physical NICs** (or virtual NICs in a nested lab) organized into three SET teams:
 
 | SET vSwitch | Member NICs | Traffic Type | Switch Type |
 |---|---|---|---|
-| `vSwitch-Mgmt` | pNIC-Mgmt-1, pNIC-Mgmt-2 | Host management, DNS, domain traffic | External |
-| `vSwitch-Cluster` | pNIC-Cluster-1, pNIC-Cluster-2 | Cluster heartbeat, CSV I/O | External |
-| `vSwitch-LiveMigration` | pNIC-LM-1, pNIC-LM-2 | Live migration traffic | External |
-| `vSwitch-VM` | pNIC-VM-1, pNIC-VM-2 | VM guest network traffic | External |
+| `Mgmt` | pNIC-Mgmt-1, pNIC-Mgmt-2 | Host management, DNS, domain traffic | External |
+| `Interconnect` | pNIC-Interconnect-1, pNIC-Interconnect-2 | Cluster heartbeat, CSV I/O, live migration traffic | External |
+| `Compute` | pNIC-Compute-1, pNIC-Compute-2 | Compute guest network traffic | External |
 
 ### IP Addressing
 
@@ -115,7 +109,7 @@ Each cluster node uses **eight physical NICs** (or virtual NICs in a nested lab)
 |---|---|---|
 | Management | 192.168.148.0/24 | Host management, AD, DNS |
 | Cluster | 10.10.10.0/24 | Cluster-internal communication |
-| VM | DHCP or 192.168.1.0/24 | VM guest traffic |
+| Compute | DHCP or 192.168.1.0/24 | Compute guest traffic |
 
 > **Note**: In classic single-site/single-subnet cluster designs, the Cluster and Live Migration networks typically do not need to be routable beyond the local segment. If cluster nodes span subnets or sites, those networks must be routable between nodes.
 
@@ -231,6 +225,16 @@ Set-VMHost -MaximumVirtualMachineMigrations 2
 | Supported in WS2025 | Deprecated | Fully supported |
 | Management plane | Separate | Unified with vSwitch |
 
+### 5.1a Design Principles (UCS Policy Alignment)
+
+This configuration aligns with the Cisco UCS + Hyper-V migration design:
+
+- **Three SET switches**: Mgmt, Interconnect (Cluster + Live Migration), Compute
+- **MTU 9000 for Interconnect** (Live Migration + Storage traffic); Mgmt remains at 1500
+- **Weight-based QoS** — avoid hard bandwidth caps; allow burst when capacity is available
+- **HyperVPort load balancing** — deterministic behavior aligned with UCS fabric pinning
+- **Offload and queue features enabled** — VMQ, VMMQ, RSS, and checksum offloads aligned to UCS adapter policy
+
 ### 5.2 Identify Physical Adapters
 
 Before creating SET switches, identify the NICs on each node:
@@ -239,12 +243,10 @@ Before creating SET switches, identify the NICs on each node:
 $mapping = @{
     1 = "pNIC-Mgmt-1"
     2 = "pNIC-Mgmt-2"
-    3 = "pNIC-Cluster-1"
-    4 = "pNIC-Cluster-2"
-    5 = "pNIC-LM-1"
-    6 = "pNIC-LM-2"
-    7 = "pNIC-VM-1"
-    8 = "pNIC-VM-2"
+    3 = "pNIC-Interconnect-1"
+    4 = "pNIC-Interconnect-2"
+    5 = "pNIC-Compute-1"
+    6 = "pNIC-Compute-2"
 }
 
 $mapping.GetEnumerator() |
@@ -260,6 +262,8 @@ Get-NetAdapter | Select-Object InterfaceIndex, Name, InterfaceDescription, Statu
     Sort-Object InterfaceIndex | Format-Table -AutoSize
 ```
 
+> **Note**: Screenshots in this section were captured before the switch rename. Actual switch names are `Mgmt` (was `vSwitch-Mgmt`) and `Compute` (was `vSwitch-Compute`). The `Interconnect` switch name is unchanged.
+
 <img src='.img/2026-03-01-09-32-28.png' width=800>
 
 <img src='.img/2026-03-01-09-30-18.png' width=800>
@@ -268,66 +272,51 @@ Get-NetAdapter | Select-Object InterfaceIndex, Name, InterfaceDescription, Statu
 
 ```powershell
 # Create an external SET vSwitch for management traffic
-New-VMSwitch -Name "vSwitch-Mgmt" `
+New-VMSwitch -Name "Mgmt" `
     -EnableEmbeddedTeaming $true `
     -NetAdapterName "pNIC-Mgmt-1", "pNIC-Mgmt-2" `
     -AllowManagementOS $true `
-    -MinimumBandwidthMode None
+    -MinimumBandwidthMode Weight
 
 # Rename the host vNIC created by New-VMSwitch to match naming convention
-Rename-NetAdapter -Name "vEthernet (vSwitch-Mgmt)" -NewName "vEthernet (Management)"
+Rename-NetAdapter -Name "vEthernet (Mgmt)" -NewName "vEthernet (Management)"
 ```
 
 > **Note**: The host will temporarily lose RDP connectivity (~30s) while the external virtual switch is created. During this process, network binding moves from the physical NIC to the new host virtual NIC (`vEthernet`), and the management IP configuration is carried over.
 
 <img src='.img/2026-03-01-10-38-04.png' width=500>
 
-### 5.4 Create the Cluster SET vSwitch
+### 5.4 Create the Interconnect SET vSwitch
 
 ```powershell
-# Create an external SET vSwitch for cluster heartbeat and CSV traffic
-New-VMSwitch -Name "vSwitch-Cluster" `
+# Create an external SET vSwitch for cluster heartbeat and live migration traffic
+New-VMSwitch -Name "Interconnect" `
     -EnableEmbeddedTeaming $true `
-    -NetAdapterName "pNIC-Cluster-1", "pNIC-Cluster-2" `
+    -NetAdapterName "pNIC-Interconnect-1", "pNIC-Interconnect-2" `
     -AllowManagementOS $true `
-    -MinimumBandwidthMode None
+    -MinimumBandwidthMode Weight
 
-# Rename the host vNIC created by New-VMSwitch to match naming convention
-Rename-NetAdapter -Name "vEthernet (vSwitch-Cluster)" -NewName "vEthernet (Cluster)"
-```
-
-<img src='.img/2026-03-01-10-32-00.png' width=800>
-
-### 5.5 Create the Live Migration SET vSwitch
-
-```powershell
-# Create an external SET vSwitch for live migration traffic
-New-VMSwitch -Name "vSwitch-LiveMigration" `
-    -EnableEmbeddedTeaming $true `
-    -NetAdapterName "pNIC-LM-1", "pNIC-LM-2" `
-    -AllowManagementOS $true `
-    -MinimumBandwidthMode None
-
-# Rename the host vNIC created by New-VMSwitch to match naming convention
-Rename-NetAdapter -Name "vEthernet (vSwitch-LiveMigration)" -NewName "vEthernet (LiveMigration)"
+# Rename the default host vNIC and add a second host vNIC on the same switch
+Rename-NetAdapter -Name "vEthernet (Interconnect)" -NewName "vEthernet (Cluster)"
+Add-VMNetworkAdapter -ManagementOS -Name "LiveMigration" -SwitchName "Interconnect"
 ```
 
 <img src='.img/2026-03-01-10-35-09.png' width=800>
 
-### 5.6 Create the VM SET vSwitch
+### 5.5 Create the Compute SET vSwitch
 
 ```powershell
-# Create an external SET vSwitch for VM guest traffic
-New-VMSwitch -Name "vSwitch-VM" `
+# Create an external SET vSwitch for compute guest traffic
+New-VMSwitch -Name "Compute" `
     -EnableEmbeddedTeaming $true `
-    -NetAdapterName "pNIC-VM-1", "pNIC-VM-2" `
+    -NetAdapterName "pNIC-Compute-1", "pNIC-Compute-2" `
     -AllowManagementOS $false `
-    -MinimumBandwidthMode None
+    -MinimumBandwidthMode Weight
 ```
 
 <img src='.img/2026-03-01-10-35-31.png' width=500>
 
-> **Tip**: Set `-AllowManagementOS $false` on the VM vSwitch to keep host management traffic isolated from guest VM traffic.
+> **Tip**: Set `-AllowManagementOS $false` on the Compute vSwitch to keep host management traffic isolated from guest compute traffic.
 
 Here's a look at all adapters after virtual switch creation:
 
@@ -335,7 +324,20 @@ Here's a look at all adapters after virtual switch creation:
 
 <img src='.img/2026-03-01-10-42-03.png' width=700>
 
-### 5.7 Configure IP Addresses on Host vNICs
+### 5.5a Configure Jumbo Frames (Interconnect Only)
+
+Enable MTU 9000 on the Interconnect host vNICs for Live Migration and Storage (CSV) traffic. The Management vNIC remains at the default 1500 MTU.
+
+```powershell
+# Enable Jumbo Frames on Interconnect host vNICs (MTU 9000 — Platinum QoS alignment)
+Get-NetAdapter -Name "vEthernet (Cluster)", "vEthernet (LiveMigration)" | ForEach-Object {
+    Set-NetAdapterAdvancedProperty -Name $_.Name -DisplayName "Jumbo Packet" -DisplayValue "9014 Bytes"
+}
+```
+
+> **Note**: Ensure UCS vNIC policies and upstream switching also use MTU 9000 end-to-end. VM networks use 1500 or 9000 depending on workload requirements.
+
+### 5.6 Configure IP Addresses on Host vNICs
 
 ```powershell
 # Cluster vNIC — adjust IP per node (HV01=.11, HV02=.12, HV03=.13)
@@ -349,39 +351,155 @@ New-NetIPAddress -InterfaceAlias "vEthernet (LiveMigration)" `
     -PrefixLength 24
 ```
 
-### 5.8 Configure SET Team Settings
+### 5.7 Configure SET Team Settings
 
 ```powershell
 # View the SET team configuration
-Get-VMSwitchTeam -Name "vSwitch-Mgmt"
+Get-VMSwitchTeam -Name "Mgmt"
 
-# Set load balancing algorithm (HyperVPort is the default and recommended)
-Set-VMSwitchTeam -Name "vSwitch-Mgmt" -LoadBalancingAlgorithm HyperVPort
-Set-VMSwitchTeam -Name "vSwitch-Cluster" -LoadBalancingAlgorithm HyperVPort
-Set-VMSwitchTeam -Name "vSwitch-LiveMigration" -LoadBalancingAlgorithm HyperVPort
-Set-VMSwitchTeam -Name "vSwitch-VM" -LoadBalancingAlgorithm HyperVPort
+# Set load balancing algorithm (HyperVPort is the default and recommended for UCS)
+Set-VMSwitchTeam -Name "Mgmt" -LoadBalancingAlgorithm HyperVPort
+Set-VMSwitchTeam -Name "Interconnect" -LoadBalancingAlgorithm HyperVPort
+Set-VMSwitchTeam -Name "Compute" -LoadBalancingAlgorithm HyperVPort
 ```
 
-### 5.9 Configure QoS Policies (Optional)
+### 5.8 Configure QoS Policies (Recommended)
+
+Weight-based QoS aligns with the UCS Platinum / Gold / Silver traffic model:
+
+| Traffic | UCS QoS Tier | MTU |
+|---|---|---|
+| Live Migration | Platinum | 9000 |
+| Storage (SMB/iSCSI) | Platinum | 9000 |
+| VM Traffic | Gold | 1500 or 9000 |
+| Management | Silver | 1500 |
 
 ```powershell
-# Reserve bandwidth for cluster heartbeat traffic
-New-NetQosPolicy -Name "Cluster" -IPDstPortStart 3343 -IPDstPortEnd 3343 `
-    -IPProtocol UDP -NetworkProfile All -MinBandwidthWeightAction 30
-
-# Reserve bandwidth for live migration traffic
-New-NetQosPolicy -Name "LiveMigration" -LiveMigration -MinBandwidthWeightAction 40
-
-# Reserve bandwidth for SMB (CSV) traffic
-New-NetQosPolicy -Name "SMB" -NetDirectPortMatchCondition 445 `
-    -MinBandwidthWeightAction 30
+# Assign bandwidth weights to Interconnect host vNICs
+Set-VMNetworkAdapter -ManagementOS -Name "LiveMigration" -MinimumBandwidthWeight 50
+Set-VMNetworkAdapter -ManagementOS -Name "Cluster" -MinimumBandwidthWeight 10
 ```
 
-### 5.10 Verify SET Configuration
+Rationale:
+
+- Live Migration benefits from burst throughput — weight 50 gives priority when contention exists
+- Cluster heartbeat traffic requires low latency but minimal bandwidth — weight 10 is sufficient
+- Remaining bandwidth is available for SMB/CSV traffic without artificial limits
+
+### 5.9 NIC Features and Tuning (Physical Host)
+
+> **Note**: The following settings apply to **physical hosts** only. In a nested lab, virtual NICs do not expose hardware queue or offload properties — these commands will be silently ignored via `-ErrorAction SilentlyContinue`.
+
+#### 5.9a VMQ, VMMQ, and RSS
 
 ```powershell
-# Verify all SET switches
-Get-VMSwitch | Select-Object Name, SwitchType, EmbeddedTeamingEnabled |
+# Enable VMQ on all physical adapters (required for SET hardware offload)
+Get-NetAdapter -Name "pNIC-*" | Set-NetAdapterVmq -Enabled $true
+
+# Enable VMMQ (Virtual Machine Multi-Queue) if supported
+Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
+    Set-NetAdapterAdvancedProperty -Name $_.Name `
+        -DisplayName "Virtual Machine Multi-Queue" -DisplayValue "Enabled" -ErrorAction SilentlyContinue
+}
+
+# Enable RSS (Receive Side Scaling)
+Get-NetAdapter -Name "pNIC-*" | Enable-NetAdapterRss
+
+# Enable additional queue features
+Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
+    Set-NetAdapterAdvancedProperty -Name $_.Name `
+        -DisplayName "Accelerated Receive Flow Steering" -DisplayValue "Enabled" -ErrorAction SilentlyContinue
+    Set-NetAdapterAdvancedProperty -Name $_.Name `
+        -DisplayName "Interrupt Scaling" -DisplayValue "Enabled" -ErrorAction SilentlyContinue
+}
+```
+
+#### 5.9b Queue and Ring Buffer Tuning
+
+| Setting | Recommended Value |
+|---|---|
+| VM Queues | 8–16 |
+| Receive Queue Count | 16 (or CPU-aligned) |
+| Receive Ring Size | 1024–2048 |
+| Transmit Ring Size | 512–1024 |
+| Completion Ring Size | 64–128 |
+
+```powershell
+# Tune ring buffer sizes (values are adapter-specific — adjust to match hardware)
+Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
+    Set-NetAdapterAdvancedProperty -Name $_.Name `
+        -DisplayName "Receive Buffers" -DisplayValue "2048" -ErrorAction SilentlyContinue
+    Set-NetAdapterAdvancedProperty -Name $_.Name `
+        -DisplayName "Transmit Buffers" -DisplayValue "1024" -ErrorAction SilentlyContinue
+}
+```
+
+#### 5.9c Offload Settings
+
+```powershell
+# Enable checksum offloads (Tx + Rx)
+Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
+    Set-NetAdapterChecksumOffload -Name $_.Name `
+        -TcpIPv4 TxRxEnabled -UdpIPv4 TxRxEnabled `
+        -TcpIPv6 TxRxEnabled -UdpIPv6 TxRxEnabled
+}
+
+# Enable Large Send Offload (LSO)
+Get-NetAdapter -Name "pNIC-*" | Enable-NetAdapterLso
+
+# Disable Large Receive Offload (LRO — causes issues with Hyper-V vSwitch)
+Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
+    Set-NetAdapterAdvancedProperty -Name $_.Name `
+        -DisplayName "Large Receive Offload (IPv4)" -DisplayValue "Disabled" -ErrorAction SilentlyContinue
+    Set-NetAdapterAdvancedProperty -Name $_.Name `
+        -DisplayName "Large Receive Offload (IPv6)" -DisplayValue "Disabled" -ErrorAction SilentlyContinue
+}
+```
+
+#### 5.9d Interrupt Mode and Coalescing
+
+```powershell
+# Set interrupt moderation to Adaptive (MSI-X is typically configured at firmware level)
+Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
+    Set-NetAdapterAdvancedProperty -Name $_.Name `
+        -DisplayName "Interrupt Moderation" -DisplayValue "Adaptive" -ErrorAction SilentlyContinue
+}
+```
+
+> **Note**: MSI-X interrupt mode is typically configured at the driver or firmware level (e.g., UCS adapter policy). Verify via `Get-NetAdapterHardwareInfo`.
+
+#### 5.9e RSS Hashing
+
+```powershell
+# Enable all RSS hash types for optimal traffic distribution
+Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
+    Set-NetAdapterRss -Name $_.Name `
+        -IPv4 Enabled -IPv6 Enabled `
+        -TcpIPv4 Enabled -TcpIPv6 Enabled `
+        -UdpIPv4 Enabled -UdpIPv6 Enabled
+}
+```
+
+### 5.10 RDMA Guidance
+
+Keep RDMA **disabled** unless explicitly deploying SMB Direct. Enabling RDMA requires full DCB/PFC/QoS configuration end-to-end across the host, switch fabric, and storage target.
+
+### 5.11 Live Migration Guidance
+
+Control live migration concurrency rather than capping bandwidth. Bandwidth caps should only be introduced if storage latency increases or VM traffic is impacted during migrations.
+
+```powershell
+# Limit concurrent migrations (already set in Phase 2 step 4.3)
+Set-VMHost -MaximumVirtualMachineMigrations 2
+```
+
+> **Tip**: CDP and LLDP settings (for fabric visibility) are configured on the UCS side via adapter and network control policies — they are not host-level PowerShell settings.
+
+### 5.12 Verify SET Configuration
+
+```powershell
+# Verify SET switches and bandwidth mode
+Get-VMSwitch | Select-Object Name, SwitchType, EmbeddedTeamingEnabled, MinimumBandwidthMode |
     Format-Table -AutoSize
 
 # Verify team members
@@ -390,11 +508,20 @@ Get-VMSwitch | ForEach-Object {
     Get-VMSwitchTeam -Name $_.Name | Select-Object -ExpandProperty NetAdapterInterfaceDescription
 }
 
-# Verify host vNICs
-Get-VMNetworkAdapter -ManagementOS | Select-Object Name, SwitchName, IPAddresses |
+# Verify host vNIC QoS weights
+Get-VMNetworkAdapter -ManagementOS | Select-Object Name, SwitchName, MinimumBandwidthWeight |
     Format-Table -AutoSize
 
-# Verify connectivity - ping from each node
+# Verify Jumbo Frames on Interconnect vNICs
+Get-NetAdapterAdvancedProperty -Name "vEthernet (Cluster)", "vEthernet (LiveMigration)" `
+    -DisplayName "Jumbo Packet"
+
+# Verify VMQ and RSS status (physical hosts)
+Get-NetAdapterVmq -Name "pNIC-*" -ErrorAction SilentlyContinue |
+    Select-Object Name, Enabled, BaseProcessorNumber, MaxProcessors | Format-Table -AutoSize
+Get-NetAdapterRss -Name "pNIC-*" -ErrorAction SilentlyContinue | Format-Table -AutoSize
+
+# Verify connectivity between nodes
 Test-NetConnection -ComputerName "192.168.148.52" -InformationLevel Detailed
 Test-NetConnection -ComputerName "10.10.10.12" -InformationLevel Detailed
 ```
