@@ -65,9 +65,9 @@ graph LR
         end
 
         subgraph GVNICS["Host vNICs"]
-            HV_MGMT["vEthernet: Management\n192.168.148.x/24"]
-            HV_CLUS["vEthernet: Cluster\n10.10.10.x/24"]
-            HV_LM["vEthernet: LiveMigration\n10.10.10.2x/24"]
+            HV_MGMT["vEthernet: Mgmt - Host Management\n192.168.148.x/24"]
+            HV_CLUS["vEthernet: InterConnect - Cluster Heartbeat\n10.10.10.x/24"]
+            HV_LM["vEthernet: InterConnect - Live Migration\n10.10.10.2x/24"]
         end
 
         M1 & M2 --> SET_M
@@ -238,35 +238,16 @@ This configuration aligns with the Cisco UCS + Hyper-V migration design:
 Before creating SET switches, identify the NICs on each node:
 
 ```powershell
-$mapping = @{
-    1 = "pNIC-Mgmt-1"
-    2 = "pNIC-Mgmt-2"
-    3 = "pNIC-Interconnect-1"
-    4 = "pNIC-Interconnect-2"
-    5 = "pNIC-Compute-1"
-    6 = "pNIC-Compute-2"
-}
-
-$mapping.GetEnumerator() |
-    Sort-Object Key |
-    ForEach-Object {
-        $adapter = Get-NetAdapter -InterfaceIndex $_.Key -ErrorAction SilentlyContinue
-        if ($adapter -and $adapter.Name -ne $_.Value) {
-            Rename-NetAdapter -InterfaceIndex $_.Key -NewName $_.Value
-        }
-    }
-
-Get-NetAdapter | Select-Object InterfaceIndex, Name, InterfaceDescription, Status, LinkSpeed |
-    Sort-Object InterfaceIndex | Format-Table -AutoSize
+Get-NetAdapter | Select-Object Name, InterfaceIndex, InterfaceDescription, Status, LinkSpeed | Sort-Object Name | Format-Table -AutoSize
 ```
 
-> **Note**: Screenshots in this section were captured before the switch rename. Actual switch names are `Mgmt` (was `vSwitch-Mgmt`) and `Compute` (was `vSwitch-Compute`). The `Interconnect` switch name is unchanged.
+<img src='.img/2026-04-07-14-13-50.png' width='800'>
 
-<img src='.img/2026-03-01-09-32-28.png' width=800>
-
-<img src='.img/2026-03-01-09-30-18.png' width=800>
+<img src='.img/2026-04-07-14-14-33.png' width='700'>
 
 ### 5.3 Create the Management SET vSwitch
+
+> **Note**: In the following process, the host will temporarily lose RDP connectivity (~30s) while the external virtual switch is created. During this process, network binding moves from the physical NIC to the new host virtual NIC (`vEthernet`), and the management IP configuration is carried over.
 
 ```powershell
 # Create an external SET vSwitch for management traffic
@@ -274,15 +255,13 @@ New-VMSwitch -Name "Mgmt" `
     -EnableEmbeddedTeaming $true `
     -NetAdapterName "pNIC-Mgmt-1", "pNIC-Mgmt-2" `
     -AllowManagementOS $true `
-    -MinimumBandwidthMode Weight
+    -MinimumBandwidthMode None
 
 # Rename the host vNIC created by New-VMSwitch to match naming convention
-Rename-NetAdapter -Name "vEthernet (Mgmt)" -NewName "vEthernet (Management)"
+Rename-NetAdapter -Name "vEthernet (Mgmt)" -NewName "vEthernet (Mgmt - Host Management)"
 ```
 
-> **Note**: The host will temporarily lose RDP connectivity (~30s) while the external virtual switch is created. During this process, network binding moves from the physical NIC to the new host virtual NIC (`vEthernet`), and the management IP configuration is carried over.
-
-<img src='.img/2026-03-01-10-38-04.png' width=500>
+<img src='.img/2026-04-07-15-06-04.png' width=800>
 
 ### 5.4 Create the Interconnect SET vSwitch
 
@@ -295,11 +274,13 @@ New-VMSwitch -Name "Interconnect" `
     -MinimumBandwidthMode Weight
 
 # Rename the default host vNIC and add a second host vNIC on the same switch
-Rename-NetAdapter -Name "vEthernet (Interconnect)" -NewName "vEthernet (Cluster)"
-Add-VMNetworkAdapter -ManagementOS -Name "LiveMigration" -SwitchName "Interconnect"
+Rename-NetAdapter -Name "vEthernet (Interconnect)" -NewName "vEthernet (InterConnect - Cluster Heartbeat)"
+Add-VMNetworkAdapter -ManagementOS -Name "InterConnect - Live Migration" -SwitchName "Interconnect"
 ```
 
-<img src='.img/2026-03-01-10-35-09.png' width=800>
+<img src='.img/2026-04-07-14-56-00.png' width=900>
+
+<img src='.img/2026-04-07-14-57-14.png' width=700>
 
 ### 5.5 Create the Compute SET vSwitch
 
@@ -309,18 +290,12 @@ New-VMSwitch -Name "Compute" `
     -EnableEmbeddedTeaming $true `
     -NetAdapterName "pNIC-Compute-1", "pNIC-Compute-2" `
     -AllowManagementOS $false `
-    -MinimumBandwidthMode Weight
+    -MinimumBandwidthMode None
 ```
 
-<img src='.img/2026-03-01-10-35-31.png' width=500>
+<img src='.img/2026-04-07-14-58-11.png' width=500>
 
 > **Tip**: Set `-AllowManagementOS $false` on the Compute vSwitch to keep host management traffic isolated from guest compute traffic.
-
-Here's a look at all adapters after virtual switch creation:
-
-<img src='.img/2026-03-01-10-40-37.png' width=800>
-
-<img src='.img/2026-03-01-10-42-03.png' width=700>
 
 ### 5.5a Configure Jumbo Frames (Interconnect Only)
 
@@ -328,7 +303,7 @@ Enable MTU 9000 on the Interconnect host vNICs for Live Migration and Storage (C
 
 ```powershell
 # Enable Jumbo Frames on Interconnect host vNICs (MTU 9000 — Platinum QoS alignment)
-Get-NetAdapter -Name "vEthernet (Cluster)", "vEthernet (LiveMigration)" | ForEach-Object {
+Get-NetAdapter -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthernet (InterConnect - Live Migration)" | ForEach-Object {
     Set-NetAdapterAdvancedProperty -Name $_.Name -DisplayName "Jumbo Packet" -DisplayValue "9014 Bytes"
 }
 ```
@@ -339,12 +314,12 @@ Get-NetAdapter -Name "vEthernet (Cluster)", "vEthernet (LiveMigration)" | ForEac
 
 ```powershell
 # Cluster vNIC — adjust IP per node (HV01=.11, HV02=.12, HV03=.13)
-New-NetIPAddress -InterfaceAlias "vEthernet (Cluster)" `
+New-NetIPAddress -InterfaceAlias "vEthernet (InterConnect - Cluster Heartbeat)" `
     -IPAddress "10.10.10.11" `
     -PrefixLength 24
 
 # Live Migration vNIC — adjust IP per node (HV01=.21, HV02=.22, HV03=.23)
-New-NetIPAddress -InterfaceAlias "vEthernet (LiveMigration)" `
+New-NetIPAddress -InterfaceAlias "vEthernet (InterConnect - Live Migration)" `
     -IPAddress "10.10.10.21" `
     -PrefixLength 24
 ```
@@ -374,8 +349,8 @@ Weight-based QoS aligns with the UCS Platinum / Gold / Silver traffic model:
 
 ```powershell
 # Assign bandwidth weights to Interconnect host vNICs
-Set-VMNetworkAdapter -ManagementOS -Name "LiveMigration" -MinimumBandwidthWeight 50
-Set-VMNetworkAdapter -ManagementOS -Name "Cluster" -MinimumBandwidthWeight 10
+Set-VMNetworkAdapter -ManagementOS -Name "InterConnect - Live Migration" -MinimumBandwidthWeight 50
+Set-VMNetworkAdapter -ManagementOS -Name "InterConnect - Cluster Heartbeat" -MinimumBandwidthWeight 10
 ```
 
 Rationale:
@@ -511,7 +486,7 @@ Get-VMNetworkAdapter -ManagementOS | Select-Object Name, SwitchName, MinimumBand
     Format-Table -AutoSize
 
 # Verify Jumbo Frames on Interconnect vNICs
-Get-NetAdapterAdvancedProperty -Name "vEthernet (Cluster)", "vEthernet (LiveMigration)" `
+Get-NetAdapterAdvancedProperty -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthernet (InterConnect - Live Migration)" `
     -DisplayName "Jumbo Packet"
 
 # Verify VMQ and RSS status (physical hosts)
