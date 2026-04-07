@@ -906,13 +906,13 @@ Invoke-Command -ComputerName "HV01", "HV02", "HV03" -ScriptBlock {
 Get-VMSwitch | Where-Object EmbeddedTeamingEnabled | Format-Table Name, SwitchType
 
 # Add a NIC to an existing SET team
-Set-VMSwitchTeam -Name "vSwitch-Mgmt" -NetAdapterName "pNIC-Mgmt-1", "pNIC-Mgmt-2", "pNIC-Mgmt-3"
+Set-VMSwitchTeam -Name "Mgmt" -NetAdapterName "pNIC-Mgmt-1", "pNIC-Mgmt-2", "pNIC-Mgmt-3"
 
 # Remove a NIC from a SET team (specify remaining members)
-Set-VMSwitchTeam -Name "vSwitch-Mgmt" -NetAdapterName "pNIC-Mgmt-1", "pNIC-Mgmt-2"
+Set-VMSwitchTeam -Name "Mgmt" -NetAdapterName "pNIC-Mgmt-1", "pNIC-Mgmt-2"
 
 # Change load balancing algorithm
-Set-VMSwitchTeam -Name "vSwitch-Mgmt" -LoadBalancingAlgorithm Dynamic
+Set-VMSwitchTeam -Name "Mgmt" -LoadBalancingAlgorithm Dynamic
 
 # View team details
 Get-VMSwitchTeam | Format-List *
