@@ -100,7 +100,7 @@ Each cluster node uses **six physical NICs** (or virtual NICs in a nested lab) o
 | SET vSwitch | Member NICs | Traffic Type | Switch Type |
 |---|---|---|---|
 | `Mgmt` | pNIC-Mgmt-1, pNIC-Mgmt-2 | Host management, DNS, domain traffic | External |
-| `Interconnect` | pNIC-Interconnect-1, pNIC-Interconnect-2 | Cluster heartbeat, CSV I/O, live migration traffic | External |
+| `Interconnect` | pNIC-Interconnect-1, pNIC-Interconnect-2 | Cluster heartbeat, live migration traffic | External |
 | `Compute` | pNIC-Compute-1, pNIC-Compute-2 | Compute guest network traffic | External |
 
 ### IP Addressing
@@ -109,7 +109,7 @@ Each cluster node uses **six physical NICs** (or virtual NICs in a nested lab) o
 |---|---|---|
 | Management | 192.168.148.0/24 | Host management, AD, DNS |
 | Cluster | 10.10.10.0/24 | Cluster-internal communication |
-| Compute | DHCP or 192.168.1.0/24 | Compute guest traffic |
+| Compute | Varies | Compute guest traffic |
 
 > **Note**: In classic single-site/single-subnet cluster designs, the Cluster and Live Migration networks typically do not need to be routable beyond the local segment. If cluster nodes span subnets or sites, those networks must be routable between nodes.
 
@@ -218,7 +218,6 @@ Set-VMHost -MaximumVirtualMachineMigrations 2
 
 | Feature | LBFO (Legacy) | SET (Recommended) |
 |---|---|---|
-| RDMA support | No | Yes |
 | Hyper-V integration | Separate layer | Built into vSwitch |
 | Max team members | 32 | 8 |
 | SR-IOV compatible | No | Yes |
