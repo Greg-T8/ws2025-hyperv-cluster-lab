@@ -220,7 +220,6 @@ Set-VMHost -MaximumVirtualMachineMigrations 2
 |---|---|---|
 | Hyper-V integration | Separate layer | Built into vSwitch |
 | Max team members | 32 | 8 |
-| SR-IOV compatible | No | Yes |
 | Supported in WS2025 | Deprecated | Fully supported |
 | Management plane | Separate | Unified with vSwitch |
 
