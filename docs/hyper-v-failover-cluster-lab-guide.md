@@ -67,7 +67,7 @@ graph LR
         subgraph GVNICS["Host vNICs"]
             HV_MGMT["Host Management\n192.168.148.x/24"]
             HV_CLUS["Cluster Heartbeat\n10.10.10.x/24"]
-            HV_LM["Live Migration\n10.10.10.2x/24"]
+            HV_LM["Live Migration\n10.10.20.x/24"]
         end
 
         M1 & M2 --> SET_M
@@ -109,17 +109,20 @@ Each cluster node uses **six physical NICs** (or virtual NICs in a nested lab) o
 |---|---|---|
 | Management | 192.168.148.0/24 | Host management, AD, DNS |
 | Cluster | 10.10.10.0/24 | Cluster-internal communication |
+| Live Migration | 10.10.20.0/24 | VM live migration traffic |
 | Compute | Varies | Compute guest traffic |
 
 > **Note**: In classic single-site/single-subnet cluster designs, the Cluster and Live Migration networks typically do not need to be routable beyond the local segment. If cluster nodes span subnets or sites, those networks must be routable between nodes.
+>
+> **Addressing Example Note**: The IP ranges in this guide are example values only. Adjust all subnets and host IPs to match your environment and IPAM standards.
 
 ### Host and Cluster Service IP Mapping
 
 | Host / Service | Management IP | Cluster IP | Live Migration IP | Notes |
 |---|---|---|---|---|
-| `HV01` | 192.168.148.51 | 10.10.10.11 | 10.10.10.21 | Node 1 |
-| `HV02` | 192.168.148.52 | 10.10.10.12 | 10.10.10.22 | Node 2 |
-| `HV03` | 192.168.148.53 | 10.10.10.13 | 10.10.10.23 | Node 3 |
+| `HV01` | 192.168.148.51 | 10.10.10.11 | 10.10.20.21 | Node 1 |
+| `HV02` | 192.168.148.52 | 10.10.10.12 | 10.10.20.22 | Node 2 |
+| `HV03` | 192.168.148.53 | 10.10.10.13 | 10.10.20.23 | Node 3 |
 | `HV-Cluster` (cluster service name/IP) | 192.168.148.50 | N/A | N/A | Cluster client access point |
 
 ---
@@ -323,7 +326,7 @@ New-NetIPAddress -InterfaceAlias "vEthernet (InterConnect - Cluster Heartbeat)" 
 
 # Live Migration vNIC — adjust IP per node (HV01=.21, HV02=.22, HV03=.23)
 New-NetIPAddress -InterfaceAlias "vEthernet (InterConnect - Live Migration)" `
-    -IPAddress "10.10.10.21" `
+    -IPAddress "10.10.20.21" `
     -PrefixLength 24
 ```
 
@@ -635,6 +638,7 @@ Get-NetAdapterLso -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthern
 # Verify connectivity between nodes
 Test-NetConnection -ComputerName "192.168.148.52" -InformationLevel Detailed
 Test-NetConnection -ComputerName "10.10.10.12" -InformationLevel Detailed
+Test-NetConnection -ComputerName "10.10.20.22" -InformationLevel Detailed
 ```
 
 ---
@@ -810,11 +814,13 @@ After cluster creation, rename and configure the cluster networks for clarity:
 # Rename cluster networks
 (Get-ClusterNetwork | Where-Object Address -eq "192.168.148.0").Name = "Management"
 (Get-ClusterNetwork | Where-Object Address -eq "10.10.10.0").Name = "Cluster"
+(Get-ClusterNetwork | Where-Object Address -eq "10.10.20.0").Name = "LiveMigration"
 
 # Set network roles
 # 0 = Not used by cluster, 1 = Cluster only, 3 = Cluster and client
 (Get-ClusterNetwork "Management").Role = 3
 (Get-ClusterNetwork "Cluster").Role = 1
+(Get-ClusterNetwork "LiveMigration").Role = 1
 ```
 
 ---
@@ -889,13 +895,13 @@ Invoke-Command -ComputerName "HV01", "HV02", "HV03" -ScriptBlock {
 ### 10.2 Configure Live Migration Networks
 
 ```powershell
-# Restrict live migration to the cluster network
+# Restrict live migration to the dedicated live migration network
 Invoke-Command -ComputerName "HV01", "HV02", "HV03" -ScriptBlock {
     # Set migration to use specific subnet
     Set-VMHost -VirtualMachineMigrationPerformanceOption SMB
 
-    # Add the cluster network for live migration
-    Add-VMMigrationNetwork -Subnet "10.10.10.0/24" -Priority 1
+    # Add the live migration network
+    Add-VMMigrationNetwork -Subnet "10.10.20.0/24" -Priority 1
 
     # Remove management network from migration (if present)
     $mgmtNet = Get-VMMigrationNetwork | Where-Object Subnet -like "192.168.148.*"
