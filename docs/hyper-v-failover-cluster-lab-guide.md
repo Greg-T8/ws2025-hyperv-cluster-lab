@@ -192,13 +192,18 @@ Install-WindowsFeature -Name Hyper-V `
 ### 4.2 Configure Default Hyper-V Paths
 
 ```powershell
-Set-VMHost -VirtualMachinePath "C:\Hyper-V" `
-           -VirtualHardDiskPath "C:\Hyper-V"
+Set-VMHost -VirtualMachinePath "C:\Hyper-V" -VirtualHardDiskPath "C:\Hyper-V"
 ```
 
 > **Note**: This initial path is intended for early host setup. After Cluster Shared Volumes are configured in Phase 7, update both defaults to `C:\ClusterStorage\Volume1` in Step 9.5.
 
 ### 4.3 Configure Hyper-V Host Settings
+
+| Setting | Value | Description |
+|---|---|---|
+| NUMA Spanning | Enabled (`$true`) | Allows VMs to allocate memory across NUMA boundaries when a single NUMA node cannot satisfy the request. |
+| Enhanced Session Mode | Enabled (`$true`) | Improves VM console usability by enabling richer guest/host integration in Hyper-V Manager sessions. |
+| Maximum Virtual Machine Migrations | `2` | Limits concurrent live migrations per host to balance migration speed with workload stability. |
 
 ```powershell
 # Enable NUMA spanning (useful for VMs larger than a single NUMA node)
