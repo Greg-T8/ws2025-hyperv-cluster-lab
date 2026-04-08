@@ -402,12 +402,26 @@ Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
 | Completion Ring Size | 64–128 |
 
 ```powershell
-# Tune ring buffer sizes (values are adapter-specific — adjust to match hardware)
+# Tune queue and ring buffer settings (values are adapter-specific — adjust to match hardware)
 Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
+    # VM Queues target: 8–16 (cap at 16 processors per queue)
+    Set-NetAdapterVmq -Name $_.Name -Enabled $true -MaxProcessors 16 -ErrorAction SilentlyContinue
+
+    # Receive Queue Count target: 16 (or CPU-aligned)
+    Set-NetAdapterAdvancedProperty -Name $_.Name `
+        -DisplayName "Maximum Number of RSS Queues" -DisplayValue "16" -ErrorAction SilentlyContinue
+
+    # Receive Ring Size target: 2048
     Set-NetAdapterAdvancedProperty -Name $_.Name `
         -DisplayName "Receive Buffers" -DisplayValue "2048" -ErrorAction SilentlyContinue
+
+    # Transmit Ring Size target: 1024
     Set-NetAdapterAdvancedProperty -Name $_.Name `
         -DisplayName "Transmit Buffers" -DisplayValue "1024" -ErrorAction SilentlyContinue
+
+    # Completion Ring Size target: 128
+    Set-NetAdapterAdvancedProperty -Name $_.Name `
+        -DisplayName "Completion Queue Size" -DisplayValue "128" -ErrorAction SilentlyContinue
 }
 ```
 
@@ -417,8 +431,8 @@ Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
 # Enable checksum offloads (Tx + Rx)
 Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
     Set-NetAdapterChecksumOffload -Name $_.Name `
-        -TcpIPv4 TxRxEnabled -UdpIPv4 TxRxEnabled `
-        -TcpIPv6 TxRxEnabled -UdpIPv6 TxRxEnabled
+        -TcpIPv4 RxTxEnabled -UdpIPv4 RxTxEnabled `
+        -TcpIPv6 RxTxEnabled -UdpIPv6 RxTxEnabled
 }
 
 # Enable Large Send Offload (LSO)
@@ -445,15 +459,14 @@ Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
 
 > **Note**: MSI-X interrupt mode is typically configured at the driver or firmware level (e.g., UCS adapter policy). Verify via `Get-NetAdapterHardwareInfo`.
 
-#### 5.9e RSS Hashing
+#### 5.9e RSS Configuration
 
 ```powershell
-# Enable all RSS hash types for optimal traffic distribution
+# Enable RSS and set a NUMA-aware profile for optimal traffic distribution
 Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
     Set-NetAdapterRss -Name $_.Name `
-        -IPv4 Enabled -IPv6 Enabled `
-        -TcpIPv4 Enabled -TcpIPv6 Enabled `
-        -UdpIPv4 Enabled -UdpIPv6 Enabled
+    -Enabled $true `
+    -Profile Closest
 }
 ```
 
