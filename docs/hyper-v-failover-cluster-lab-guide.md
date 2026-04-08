@@ -48,7 +48,7 @@ The diagram below maps the NIC chain inside each cluster node guest OS, where VM
     }
 }}%%
 graph LR
-    subgraph NODE["HV01 / HV02 / HV03 — Cluster Nodes (representative)"]
+    subgraph NODE["TEST-HV01 / TEST-HV02 / TEST-HV03 — Cluster Nodes (representative)"]
         subgraph GNICS["VM vNICs (physical adapters inside guest OS)"]
             M1["pNIC-Mgmt-1"]
             M2["pNIC-Mgmt-2"]
@@ -120,9 +120,9 @@ Each cluster node uses **six physical NICs** (or virtual NICs in a nested lab) o
 
 | Host / Service | Management IP | Cluster IP | Live Migration IP | Notes |
 |---|---|---|---|---|
-| `HV01` | 192.168.148.51 | 10.10.10.11 | 10.10.20.21 | Node 1 |
-| `HV02` | 192.168.148.52 | 10.10.10.12 | 10.10.20.22 | Node 2 |
-| `HV03` | 192.168.148.53 | 10.10.10.13 | 10.10.20.23 | Node 3 |
+| `TEST-HV01` | 192.168.148.51 | 10.10.10.11 | 10.10.20.21 | Node 1 |
+| `TEST-HV02` | 192.168.148.52 | 10.10.10.12 | 10.10.20.22 | Node 2 |
+| `TEST-HV03` | 192.168.148.53 | 10.10.10.13 | 10.10.20.23 | Node 3 |
 | `HV-Cluster` (cluster service name/IP) | 192.168.148.50 | N/A | N/A | Cluster client access point |
 
 ---
@@ -144,8 +144,8 @@ Run the following on **each cluster node** after installing Windows Server 2025 
 ### 3.1 Set Computer Name
 
 ```powershell
-Rename-Computer -NewName "HV01" -Restart
-# Repeat for HV02, HV03
+Rename-Computer -NewName "TEST-HV01" -Restart
+# Repeat for TEST-HV02, TEST-HV03
 ```
 
 ### 3.2 Configure Windows Update
@@ -334,12 +334,12 @@ Get-NetAdapter -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthernet 
 ### 5.6 Configure IP Addresses on Host vNICs
 
 ```powershell
-# Cluster vNIC — adjust IP per node (HV01=.11, HV02=.12, HV03=.13)
+# Cluster vNIC — adjust IP per node (TEST-HV01=.11, TEST-HV02=.12, TEST-HV03=.13)
 New-NetIPAddress -InterfaceAlias "vEthernet (InterConnect - Cluster Heartbeat)" `
     -IPAddress "10.10.10.11" `
     -PrefixLength 24
 
-# Live Migration vNIC — adjust IP per node (HV01=.21, HV02=.22, HV03=.23)
+# Live Migration vNIC — adjust IP per node (TEST-HV01=.21, TEST-HV02=.22, TEST-HV03=.23)
 New-NetIPAddress -InterfaceAlias "vEthernet (InterConnect - Live Migration)" `
     -IPAddress "10.10.20.21" `
     -PrefixLength 24
@@ -889,7 +889,7 @@ Install-WindowsFeature -Name Failover-Clustering `
 Run from **any one node** (validation tests all specified nodes):
 
 ```powershell
-Test-Cluster -Node "HV01", "HV02", "HV03" -Include "Storage", "Inventory", "Network", "System Configuration"
+Test-Cluster -Node "TEST-HV01", "TEST-HV02", "TEST-HV03" -Include "Storage", "Inventory", "Network", "System Configuration"
 ```
 
 Review the validation report carefully. Address any warnings or errors before proceeding. The report is saved to `C:\Windows\Cluster\Reports` by default.
@@ -898,7 +898,7 @@ Review the validation report carefully. Address any warnings or errors before pr
 
 ```powershell
 New-Cluster -Name "HV-Cluster" `
-    -Node "HV01", "HV02", "HV03" `
+    -Node "TEST-HV01", "TEST-HV02", "TEST-HV03" `
     -StaticAddress "192.168.148.50" `
     -NoStorage
 ```
@@ -972,7 +972,7 @@ Get-ClusterSharedVolume | Select-Object Name, State, OwnerNode |
     Format-Table -AutoSize
 
 # Verify CSV paths are accessible on all nodes
-Invoke-Command -ComputerName "HV01", "HV02", "HV03" -ScriptBlock {
+Invoke-Command -ComputerName "TEST-HV01", "TEST-HV02", "TEST-HV03" -ScriptBlock {
     Test-Path "C:\ClusterStorage\Volume1"
 }
 ```
@@ -994,7 +994,7 @@ Set-VMHost -VirtualMachinePath "C:\ClusterStorage\Volume1" `
 
 ```powershell
 # Enable live migration on all cluster nodes
-Invoke-Command -ComputerName "HV01", "HV02", "HV03" -ScriptBlock {
+Invoke-Command -ComputerName "TEST-HV01", "TEST-HV02", "TEST-HV03" -ScriptBlock {
     Enable-VMMigration
 }
 ```
@@ -1003,7 +1003,7 @@ Invoke-Command -ComputerName "HV01", "HV02", "HV03" -ScriptBlock {
 
 ```powershell
 # Restrict live migration to the dedicated live migration network
-Invoke-Command -ComputerName "HV01", "HV02", "HV03" -ScriptBlock {
+Invoke-Command -ComputerName "TEST-HV01", "TEST-HV02", "TEST-HV03" -ScriptBlock {
     # Set migration to use specific subnet
     Set-VMHost -VirtualMachineMigrationPerformanceOption SMB
 
@@ -1022,7 +1022,7 @@ Invoke-Command -ComputerName "HV01", "HV02", "HV03" -ScriptBlock {
 
 ```powershell
 # Configure Kerberos authentication for live migration (recommended)
-Invoke-Command -ComputerName "HV01", "HV02", "HV03" -ScriptBlock {
+Invoke-Command -ComputerName "TEST-HV01", "TEST-HV02", "TEST-HV03" -ScriptBlock {
     Set-VMHost -VirtualMachineMigrationAuthenticationType Kerberos
 }
 ```
@@ -1031,7 +1031,7 @@ For Kerberos live migration, configure constrained delegation on each cluster no
 
 ```powershell
 # Run on the domain controller — configure delegation for each node pair
-$nodes = "HV01$", "HV02$", "HV03$"
+$nodes = "TEST-HV01$", "TEST-HV02$", "TEST-HV03$"
 foreach ($source in $nodes) {
     foreach ($target in $nodes) {
         if ($source -ne $target) {
@@ -1057,7 +1057,7 @@ New-VM -Name "TestVM" -MemoryStartupBytes 512MB -NewVHDPath "C:\ClusterStorage\V
 Add-ClusterVirtualMachineRole -VMName "TestVM"
 
 # Perform live migration
-Move-ClusterVirtualMachineRole -Name "TestVM" -Node "HV02" -MigrationType Live
+Move-ClusterVirtualMachineRole -Name "TestVM" -Node "TEST-HV02" -MigrationType Live
 ```
 
 ---
@@ -1068,7 +1068,7 @@ Move-ClusterVirtualMachineRole -Name "TestVM" -Node "HV02" -MigrationType Live
 
 ```powershell
 # Run full validation suite
-Test-Cluster -Node "HV01", "HV02", "HV03"
+Test-Cluster -Node "TEST-HV01", "TEST-HV02", "TEST-HV03"
 ```
 
 ### 11.2 Verify Cluster Health
@@ -1094,20 +1094,20 @@ Get-ClusterQuorum
 
 ```powershell
 # Simulate node failure by stopping cluster service
-Stop-ClusterNode -Name "HV01"
+Stop-ClusterNode -Name "TEST-HV01"
 
 # Verify VMs migrated
 Get-ClusterGroup | Format-Table Name, State, OwnerNode -AutoSize
 
 # Bring node back
-Start-ClusterNode -Name "HV01"
+Start-ClusterNode -Name "TEST-HV01"
 ```
 
 ### 11.4 Verify SET vSwitch Redundancy
 
 ```powershell
 # Check SET team status across all nodes
-Invoke-Command -ComputerName "HV01", "HV02", "HV03" -ScriptBlock {
+Invoke-Command -ComputerName "TEST-HV01", "TEST-HV02", "TEST-HV03" -ScriptBlock {
     Get-VMSwitch | Where-Object EmbeddedTeamingEnabled | ForEach-Object {
         [PSCustomObject]@{
             Node       = $env:COMPUTERNAME
@@ -1152,14 +1152,14 @@ New-VM -Name "ProdVM01" -MemoryStartupBytes 4GB `
 Add-ClusterVirtualMachineRole -VMName "ProdVM01"
 
 # Drain a node for maintenance
-Suspend-ClusterNode -Name "HV01" -Drain
+Suspend-ClusterNode -Name "TEST-HV01" -Drain
 
 # Resume a node
-Resume-ClusterNode -Name "HV01"
+Resume-ClusterNode -Name "TEST-HV01"
 
 # Move all roles off a node
-Get-ClusterGroup | Where-Object OwnerNode -eq "HV01" |
-    Move-ClusterGroup -Node "HV02"
+Get-ClusterGroup | Where-Object OwnerNode -eq "TEST-HV01" |
+    Move-ClusterGroup -Node "TEST-HV02"
 ```
 
 ### Useful Diagnostic Commands
@@ -1172,7 +1172,7 @@ Get-ClusterLog -Destination "C:\Temp" -TimeSpan 60
 Get-WinEvent -LogName "Microsoft-Windows-FailoverClustering/Operational" -MaxEvents 50
 
 # Network connectivity matrix
-$nodes = "HV01", "HV02", "HV03"
+$nodes = "TEST-HV01", "TEST-HV02", "TEST-HV03"
 foreach ($node in $nodes) {
     foreach ($target in $nodes) {
         if ($node -ne $target) {
@@ -1190,3 +1190,4 @@ foreach ($node in $nodes) {
 ## Related Guides
 
 - [Network ATC Implementation Guide](network-atc-implementation-guide.md) — Simplified networking using Network ATC intent-based configuration
+
