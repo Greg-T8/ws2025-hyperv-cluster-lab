@@ -506,10 +506,18 @@ Get-VMNetworkAdapter -ManagementOS | Select-Object Name, SwitchName, MinimumBand
 Get-NetAdapterAdvancedProperty -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthernet (InterConnect - Live Migration)" `
     -DisplayName "Jumbo Packet"
 
-# Verify VMQ and RSS status (physical hosts)
+# Verify VMQ status (physical hosts)
 Get-NetAdapterVmq -Name "pNIC-*" -ErrorAction SilentlyContinue |
     Select-Object Name, Enabled, BaseProcessorNumber, MaxProcessors | Format-Table -AutoSize
-Get-NetAdapterRss -Name "pNIC-*" -ErrorAction SilentlyContinue | Format-Table -AutoSize
+
+# Verify RSS state and profile configuration (physical hosts)
+Get-NetAdapterRss -Name "pNIC-*" -ErrorAction SilentlyContinue |
+    Select-Object Name, Enabled, Profile, TcpIPv4HashEnabled, UdpIPv4HashEnabled, TcpIPv6HashEnabled, UdpIPv6HashEnabled |
+    Format-Table -AutoSize
+
+# Verify checksum offload configuration/capabilities (physical hosts)
+Get-NetAdapterChecksumOffload -Name "pNIC-*" -ErrorAction SilentlyContinue |
+    Format-List Name, ChecksumOffloadHardwareCapabilities
 
 # Verify connectivity between nodes
 Test-NetConnection -ComputerName "192.168.148.52" -InformationLevel Detailed
