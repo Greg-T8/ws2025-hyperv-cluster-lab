@@ -903,6 +903,8 @@ New-Cluster -Name "HV-Cluster" `
     -NoStorage
 ```
 
+<img src='.img/2026-04-08-14-04-34.png' width=500>
+
 > **Note**: Use `-NoStorage` to create the cluster without automatically adding eligible disks. Storage is added explicitly in the next phase.
 
 ### 8.4 Verify Cluster Formation
@@ -912,6 +914,8 @@ Get-Cluster | Select-Object Name, Domain
 Get-ClusterNode | Select-Object Name, State, DynamicWeight
 Get-ClusterNetwork | Select-Object Name, Role, Address | Format-Table -AutoSize
 ```
+
+<img src='.img/2026-04-08-14-05-05.png' width=600>
 
 ### 8.5 Configure Cluster Networks
 
@@ -929,6 +933,12 @@ After cluster creation, rename and configure the cluster networks for clarity:
 (Get-ClusterNetwork "Cluster").Role = 1
 (Get-ClusterNetwork "LiveMigration").Role = 1
 ```
+
+<img src='.img/2026-04-08-14-05-44.png' width=600>
+
+<img src='.img/2026-04-08-14-06-09.png' width=600>
+
+<img src='.img/2026-04-08-14-07-46.png' width=500>
 
 ---
 
@@ -1190,4 +1200,3 @@ foreach ($node in $nodes) {
 ## Related Guides
 
 - [Network ATC Implementation Guide](network-atc-implementation-guide.md) — Simplified networking using Network ATC intent-based configuration
-
