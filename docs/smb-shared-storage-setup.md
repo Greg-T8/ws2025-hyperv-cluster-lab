@@ -67,7 +67,61 @@ In this lab, the domain controller (`TEST-DC01`) doubles as the SMB file server.
 
 Run all commands in this phase on `TEST-DC01`.
 
-### 3.1 Install the File Server Role
+### 3.1 Format the Data Disk with ReFS
+
+ReFS (Resilient File System) is the recommended file system for Hyper-V workloads. It provides integrity streams, block cloning, and faster resilvering compared to NTFS, making it well suited for the disk that will host the SMB shares.
+
+**Identify the raw disk:**
+
+```powershell
+# List all disks and identify the uninitialized data disk
+Get-Disk | Select-Object Number, FriendlyName, Size, PartitionStyle, OperationalStatus |
+    Format-Table -AutoSize
+```
+
+Note the **Number** of the disk to use for share storage (the disk showing `RAW` or `Not Initialized` in `PartitionStyle`).
+
+**Initialize, partition, and format the disk:**
+
+```powershell
+# Set the target disk number — update to match the disk identified above
+$diskNumber = 1
+
+# Initialize the disk with a GPT partition table
+Initialize-Disk -Number $diskNumber -PartitionStyle GPT -PassThru
+
+# Create a partition using all available space and assign drive letter D
+New-Partition -DiskNumber $diskNumber -UseMaximumSize -DriveLetter D
+
+# Format with ReFS; 64 KB allocation unit is optimal for large sequential VHD/VHDX I/O
+Format-Volume -DriveLetter D `
+    -FileSystem ReFS `
+    -AllocationUnitSize 65536 `
+    -NewFileSystemLabel "ClusterStorage" `
+    -Confirm:$false
+```
+
+> **Note**: The 64 KB allocation unit size (65536 bytes) is optimal for large sequential I/O workloads such as Hyper-V VHD/VHDx files. Use the default 4 KB only if the volume will host many small random-access files.
+
+**Verify the volume:**
+
+```powershell
+# Confirm the volume is formatted with ReFS and the drive letter is correct
+Get-Volume -DriveLetter D |
+    Select-Object DriveLetter, FileSystem, FileSystemLabel, Size, SizeRemaining
+```
+
+Expected output:
+
+```
+DriveLetter FileSystem FileSystemLabel         Size SizeRemaining
+----------- ---------- ---------------         ---- -------------
+D           ReFS       ClusterStorage   214748364800  214748237824
+```
+
+---
+
+### 3.2 Install the File Server Role
 
 The File Server role is typically installed by default, but verify and add it if missing:
 
@@ -79,7 +133,7 @@ Get-WindowsFeature -Name FS-FileServer | Select-Object Name, InstallState
 Install-WindowsFeature -Name FS-FileServer -IncludeManagementTools
 ```
 
-### 3.2 Create Storage Directories
+### 3.3 Create Storage Directories
 
 ```powershell
 # Create directory for VM storage
