@@ -414,6 +414,8 @@ Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
 }
 ```
 
+<img src='.img/2026-04-08-12-09-18.png' width=700>
+
 #### 5.9b Queue and Ring Buffer Tuning
 
 | Setting | Recommended Value | Cmdlet / Property |
@@ -537,6 +539,8 @@ Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
 }
 ```
 
+<img src='.img/2026-04-08-12-08-14.png' width=800>
+
 #### 5.9f Host vNIC Tuning (InterConnect)
 
 Some physical-adapter tuning cmdlets also apply to host virtual NICs created by `AllowManagementOS`. The matrix below shows which settings carry over:
@@ -583,6 +587,8 @@ $interconnectVnics | ForEach-Object {
     Enable-NetAdapterLso -Name $_
 }
 ```
+
+<img src='.img/2026-04-08-12-08-50.png' width=700>
 
 ### 5.10 RDMA Guidance
 
