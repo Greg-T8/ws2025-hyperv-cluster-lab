@@ -41,9 +41,9 @@ In this lab, the domain controller (`TEST-DC01`) doubles as the SMB file server.
 | Component | Role | IP Address |
 |---|---|---|
 | TEST-DC01 | Domain controller + SMB file server | 172.16.10.10 |
-| HV01 | Cluster node | 172.16.10.11 |
-| HV02 | Cluster node | 172.16.10.12 |
-| HV03 | Cluster node | 172.16.10.13 |
+| TEST-HV01 | Cluster node | 172.16.10.11 |
+| TEST-HV02 | Cluster node | 172.16.10.12 |
+| TEST-HV03 | Cluster node | 172.16.10.13 |
 
 ### Storage Layout
 
@@ -192,7 +192,7 @@ Cluster nodes access the SMB share using their **computer accounts**. Both NTFS 
 
 ```powershell
 # Grant Full Control to each cluster node's computer account
-$nodes = @("HV01$", "HV02$", "HV03$")
+$nodes = @("TEST-HV01$", "TEST-HV02$", "TEST-HV03$")
 
 foreach ($node in $nodes) {
     # VM storage share
@@ -252,7 +252,7 @@ Get-SmbShareAccess -Name "ClusterWitness" | Format-Table -AutoSize
 
 ## 6. Phase 4 — Configure Cluster Nodes
 
-Run the following on **each cluster node** (HV01, HV02, HV03).
+Run the following on **each cluster node** (TEST-HV01, TEST-HV02, TEST-HV03).
 
 ### 6.1 Verify SMB Client Configuration
 
@@ -368,7 +368,7 @@ Live migration works seamlessly with SMB storage because all nodes access the sa
 
 ```powershell
 # Migrate a VM to another node
-Move-ClusterVirtualMachineRole -Name "ProdVM01" -Node "HV02" -MigrationType Live
+Move-ClusterVirtualMachineRole -Name "ProdVM01" -Node "TEST-HV02" -MigrationType Live
 ```
 
 ---
@@ -389,7 +389,7 @@ Test-Path "\\TEST-DC01\ClusterVMs"
 If access fails, confirm the node is domain-joined and its computer account exists in Active Directory:
 
 ```powershell
-Get-ADComputer -Identity "HV01"
+Get-ADComputer -Identity "TEST-HV01"
 ```
 
 ### SMB Dialect Below 3.x
@@ -418,7 +418,7 @@ Get-SmbServerConfiguration | Select-Object RequireSecuritySignature, EnableSecur
 
 ```powershell
 # Verify the cluster can access the witness share
-Invoke-Command -ComputerName "HV01" -ScriptBlock {
+Invoke-Command -ComputerName "TEST-HV01" -ScriptBlock {
     Test-Path "\\TEST-DC01\ClusterWitness"
 }
 
