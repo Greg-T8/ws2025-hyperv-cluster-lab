@@ -588,7 +588,7 @@ $interconnectVnics | ForEach-Object {
 }
 ```
 
-<img src='.img/2026-04-08-12-08-50.png' width=600>
+<img src='.img/2026-04-08-12-08-50.png' width=500>
 
 ### 5.10 RDMA Guidance
 
@@ -611,7 +611,7 @@ Get-VMSwitch | Select-Object Name, SwitchType, EmbeddedTeamingEnabled, Bandwidth
     Format-Table -AutoSize
 ```
 
-<img src='.img/2026-04-08-12-12-26.png' width=600>
+<img src='.img/2026-04-08-12-12-26.png' width=800>
 
 ```powershell
 # Verify team members
@@ -643,16 +643,61 @@ Format-Table -Auto
 # Verify VMQ status (physical hosts)
 Get-NetAdapterVmq -Name "pNIC-*" -ErrorAction SilentlyContinue |
     Select-Object Name, Enabled, BaseProcessorNumber, MaxProcessors | Format-Table -AutoSize
+```
 
+> Requires physical host with network adapter that supports VMQ
+
+```powershell
 # Verify RSS state and profile configuration (physical hosts)
 Get-NetAdapterRss -Name "pNIC-*" -ErrorAction SilentlyContinue |
-    Select-Object Name, Enabled, Profile, TcpIPv4HashEnabled, UdpIPv4HashEnabled, TcpIPv6HashEnabled, UdpIPv6HashEnabled |
-    Format-Table -AutoSize
+    Select-Object Name, Enabled, Profile, NumberOfReceiveQueues, BaseProcessorNumber, MaxProcessorNumber, NumaNode,
+        @{Name='TcpIPv4HashEnabledStatus';Expression={ if ($_.TcpIPv4HashSupported -eq $false) { 'NotSupported' } elseif ($null -eq $_.TcpIPv4HashEnabled) { 'NotExposedOnAdapter' } else { $_.TcpIPv4HashEnabled } }},
+        @{Name='TcpIPv6HashEnabledStatus';Expression={ if ($_.TcpIPv6HashSupported -eq $false) { 'NotSupported' } elseif ($null -eq $_.TcpIPv6HashEnabled) { 'NotExposedOnAdapter' } else { $_.TcpIPv6HashEnabled } }},
+        @{Name='UdpIPv4HashEnabledStatus';Expression={ if ($_.UdpIPv4HashSupported -eq $false) { 'NotSupported' } elseif ($null -eq $_.UdpIPv4HashEnabled) { 'NotExposedOnAdapter' } else { $_.UdpIPv4HashEnabled } }},
+        @{Name='UdpIPv6HashEnabledStatus';Expression={ if ($_.UdpIPv6HashSupported -eq $false) { 'NotSupported' } elseif ($null -eq $_.UdpIPv6HashEnabled) { 'NotExposedOnAdapter' } else { $_.UdpIPv6HashEnabled } }},
+        TcpIPv4HashSupported, TcpIPv6HashSupported, UdpIPv4HashSupported, UdpIPv6HashSupported |
+    Sort-Object Name |
+    Format-List
+```
 
-# Verify checksum offload configuration/capabilities (physical hosts)
+> **Note**: In nested labs and on Hyper-V virtual adapters, `*HashEnabled` may show as blank because the adapter does not expose those runtime flags. On physical NICs with full RSS capability, those fields may populate. The `*HashEnabledStatus` columns above normalize this behavior to `NotExposedOnAdapter` or `NotSupported` so output is easier to interpret.
+
+<img src='.img/2026-04-08-12-30-22.png' width=700>
+
+```powershell
+# Verify checksum offload effective state (physical hosts)
 Get-NetAdapterChecksumOffload -Name "pNIC-*" -ErrorAction SilentlyContinue |
-    Format-List Name, ChecksumOffloadHardwareCapabilities
+    Select-Object Name, InterfaceDescription, IpIPv4Enabled, TcpIPv4Enabled, TcpIPv6Enabled, UdpIPv4Enabled, UdpIPv6Enabled |
+    Sort-Object Name |
+    Format-Table -AutoSize
+```
 
+<img src='.img/2026-04-08-12-36-51.png' width=800>
+
+```powershell
+# Verify checksum offload hardware capabilities (expanded)
+Get-NetAdapterChecksumOffload -Name "pNIC-*" -ErrorAction SilentlyContinue | ForEach-Object {
+    [PSCustomObject]@{
+        Name                            = $_.Name
+        IPv4RxTcpSupported              = $_.ChecksumOffloadHardwareCapabilities.IPv4ReceiveTcpChecksumSupported
+        IPv4RxUdpSupported              = $_.ChecksumOffloadHardwareCapabilities.IPv4ReceiveUdpChecksumSupported
+        IPv4TxTcpSupported              = $_.ChecksumOffloadHardwareCapabilities.IPv4TransmitTcpChecksumSupported
+        IPv4TxUdpSupported              = $_.ChecksumOffloadHardwareCapabilities.IPv4TransmitUdpChecksumSupported
+        IPv6RxTcpSupported              = $_.ChecksumOffloadHardwareCapabilities.IPv6ReceiveTcpChecksumSupported
+        IPv6RxUdpSupported              = $_.ChecksumOffloadHardwareCapabilities.IPv6ReceiveUdpChecksumSupported
+        IPv6TxTcpSupported              = $_.ChecksumOffloadHardwareCapabilities.IPv6TransmitTcpChecksumSupported
+        IPv6TxUdpSupported              = $_.ChecksumOffloadHardwareCapabilities.IPv6TransmitUdpChecksumSupported
+    }
+} |
+    Sort-Object Name |
+    Format-Table -AutoSize
+```
+
+<img src='.img/2026-04-08-12-37-37.png' width=900>
+
+> **Note**: In nested labs and on some virtual adapters, generic fields like `TcpIPv4`/`UdpIPv4` can appear blank. Prefer the `*Enabled` fields for effective state and expanded `ChecksumOffloadHardwareCapabilities.*Supported` flags for hardware capability validation.
+
+```powershell
 # Verify RSS on InterConnect host vNICs
 Get-NetAdapterRss -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthernet (InterConnect - Live Migration)" |
     Select-Object Name, Enabled, Profile | Format-Table -AutoSize
