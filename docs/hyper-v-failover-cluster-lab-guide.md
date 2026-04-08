@@ -700,16 +700,43 @@ Get-NetAdapterChecksumOffload -Name "pNIC-*" -ErrorAction SilentlyContinue | For
 ```powershell
 # Verify RSS on InterConnect host vNICs
 Get-NetAdapterRss -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthernet (InterConnect - Live Migration)" |
-    Select-Object Name, Enabled, Profile | Format-Table -AutoSize
+    Select-Object Name, IPv4Enabled, IPv6Enabled, MaximumLsoVersionSupported, V1IPv4Enabled |
+    Sort-Object Name |
+    Format-Table -AutoSize
+```
 
+> **Note**: On host vNICs in nested labs, `V2IPv4Enabled`/`V2IPv6Enabled` can be blank even when LSO is active. Use `IPv4Enabled`, `IPv6Enabled`, and `MaximumLsoVersionSupported` for a reliable validation view.
+
+```powershell
+```
+
+<img src='.img/2026-04-08-12-38-49.png' width=800>
+
+```powershell
 # Verify checksum offload on InterConnect host vNICs
 Get-NetAdapterChecksumOffload -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthernet (InterConnect - Live Migration)" |
-    Select-Object Name, TcpIPv4, UdpIPv4, TcpIPv6, UdpIPv6 | Format-Table -AutoSize
+    Select-Object Name, IpIPv4Enabled, TcpIPv4Enabled, TcpIPv6Enabled, UdpIPv4Enabled, UdpIPv6Enabled |
+    Sort-Object Name |
+    Format-Table -AutoSize
+```
 
+> **Note**: On host vNICs in nested labs, generic fields like `TcpIPv4` and `UdpIPv4` may appear blank. Use the `*Enabled` fields above to verify effective checksum offload state.
+
+<img src='.img/2026-04-08-12-40-53.png' width=800>
+
+```powershell
 # Verify LSO on InterConnect host vNICs
 Get-NetAdapterLso -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthernet (InterConnect - Live Migration)" |
-    Select-Object Name, V2IPv4Enabled, V2IPv6Enabled | Format-Table -AutoSize
+    Select-Object Name, IPv4Enabled, IPv6Enabled, MaximumLsoVersionSupported, V1IPv4Enabled |
+    Sort-Object Name |
+    Format-Table -AutoSize
+```
 
+> **Note**: On host vNICs in nested labs, `V2IPv4Enabled` and `V2IPv6Enabled` may be blank even when LSO is active. Use `IPv4Enabled`, `IPv6Enabled`, and `MaximumLsoVersionSupported` for reliable validation.
+
+<img src='.img/2026-04-08-12-46-08.png' width=800>
+
+```powershell
 # Verify connectivity between nodes
 Test-NetConnection -ComputerName "192.168.148.52" -InformationLevel Detailed
 Test-NetConnection -ComputerName "10.10.10.12" -InformationLevel Detailed
