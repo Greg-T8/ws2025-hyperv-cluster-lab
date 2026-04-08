@@ -539,7 +539,7 @@ Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
 }
 ```
 
-<img src='.img/2026-04-08-12-08-14.png' width=800>
+<img src='.img/2026-04-08-12-08-14.png' width=700>
 
 #### 5.9f Host vNIC Tuning (InterConnect)
 
@@ -588,7 +588,7 @@ $interconnectVnics | ForEach-Object {
 }
 ```
 
-<img src='.img/2026-04-08-12-08-50.png' width=700>
+<img src='.img/2026-04-08-12-08-50.png' width=600>
 
 ### 5.10 RDMA Guidance
 
@@ -603,29 +603,43 @@ Control live migration concurrency rather than capping bandwidth. Bandwidth caps
 Set-VMHost -MaximumVirtualMachineMigrations 2
 ```
 
-> **Tip**: CDP and LLDP settings (for fabric visibility) are configured on the UCS side via adapter and network control policies — they are not host-level PowerShell settings.
-
 ### 5.12 Verify SET Configuration
 
 ```powershell
 # Verify SET switches and bandwidth mode
 Get-VMSwitch | Select-Object Name, SwitchType, EmbeddedTeamingEnabled, BandwidthReservationMode |
     Format-Table -AutoSize
+```
 
+<img src='.img/2026-04-08-12-12-26.png' width=600>
+
+```powershell
 # Verify team members
 Get-VMSwitch | ForEach-Object {
     Write-Host "`n=== $($_.Name) ===" -ForegroundColor Cyan
-    Get-VMSwitchTeam -Name $_.Name | Select-Object -ExpandProperty NetAdapterInterfaceDescription
+    Get-VMSwitchTeam -Name $_.Name | Select-Object -Property *
 }
+```
 
+<img src='.img/2026-04-08-12-15-37.png' width=600>
+
+```powershell
 # Verify host vNIC QoS weights
-Get-VMNetworkAdapter -ManagementOS | Select-Object Name, SwitchName, MinimumBandwidthWeight |
-    Format-Table -AutoSize
+Get-VMNetworkAdapter -ManagementOS | Select-Object -ExpandProperty BandwidthSetting
+```
 
+<img src='.img/2026-04-08-12-18-32.png' width=600>
+
+```powershell
 # Verify Jumbo Frames on Interconnect vNICs
 Get-NetAdapterAdvancedProperty -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthernet (InterConnect - Live Migration)" `
-    -DisplayName "Jumbo Packet"
+    -DisplayName "Jumbo Packet" |
+Format-Table -Auto
+```
 
+<img src='.img/2026-04-08-12-20-14.png' width=900>
+
+```powershell
 # Verify VMQ status (physical hosts)
 Get-NetAdapterVmq -Name "pNIC-*" -ErrorAction SilentlyContinue |
     Select-Object Name, Enabled, BaseProcessorNumber, MaxProcessors | Format-Table -AutoSize
