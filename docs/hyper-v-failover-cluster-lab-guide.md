@@ -456,6 +456,8 @@ Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
 }
 ```
 
+<img src='.img/2026-04-08-12-05-30.png' width=700>
+
 #### 5.9c Offload Settings
 
 | Setting | Value | Cmdlet / Property |
@@ -490,6 +492,8 @@ Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
 }
 ```
 
+<img src='.img/2026-04-08-12-06-04.png' width=700>
+
 #### 5.9d Interrupt Mode and Coalescing
 
 | Setting | Value | Cmdlet / Property |
@@ -507,6 +511,8 @@ Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
         -DisplayName "Interrupt Moderation" -DisplayValue "Adaptive" -ErrorAction SilentlyContinue
 }
 ```
+
+<img src='.img/2026-04-08-12-07-02.png' width=800>
 
 > **Note**: MSI-X interrupt mode is typically configured at the driver or firmware level (e.g., UCS adapter policy). Verify via `Get-NetAdapterHardwareInfo`.
 
