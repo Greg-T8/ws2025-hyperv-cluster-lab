@@ -169,6 +169,14 @@ Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 Enable-PSRemoting -Force
 ```
 
+### 3.3a Enable Ping Through Windows Firewall
+
+```powershell
+# Allow inbound ICMP echo requests (ping)
+Enable-NetFirewallRule -DisplayName "File and Printer Sharing (Echo Request - ICMPv4-In)"
+Enable-NetFirewallRule -DisplayName "File and Printer Sharing (Echo Request - ICMPv6-In)"
+```
+
 ### 3.4 Configure Power Settings
 
 ```powershell
@@ -706,9 +714,6 @@ Get-NetAdapterRss -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthern
 ```
 
 > **Note**: On host vNICs in nested labs, `V2IPv4Enabled`/`V2IPv6Enabled` can be blank even when LSO is active. Use `IPv4Enabled`, `IPv6Enabled`, and `MaximumLsoVersionSupported` for a reliable validation view.
-
-```powershell
-```
 
 <img src='.img/2026-04-08-12-38-49.png' width=800>
 
