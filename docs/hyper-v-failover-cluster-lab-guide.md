@@ -65,9 +65,9 @@ graph LR
         end
 
         subgraph GVNICS["Host vNICs"]
-            HV_MGMT["vEthernet: Mgmt - Host Management\n192.168.148.x/24"]
-            HV_CLUS["vEthernet: InterConnect - Cluster Heartbeat\n10.10.10.x/24"]
-            HV_LM["vEthernet: InterConnect - Live Migration\n10.10.10.2x/24"]
+            HV_MGMT["Host Management\n192.168.148.x/24"]
+            HV_CLUS["Cluster Heartbeat\n10.10.10.x/24"]
+            HV_LM["Live Migration\n10.10.10.2x/24"]
         end
 
         M1 & M2 --> SET_M
@@ -369,6 +369,22 @@ Rationale:
 
 #### 5.9a VMQ, VMMQ, and RSS
 
+| Setting | Value | Cmdlet / Property |
+|---|---|---|
+| VMQ | Enabled | `Set-NetAdapterVmq -Enabled $true` |
+| VMMQ | Enabled | `Set-NetAdapterAdvancedProperty` — Virtual Machine Multi-Queue |
+| RSS | Enabled | `Enable-NetAdapterRss` |
+| Accelerated Receive Flow Steering | Enabled | `Set-NetAdapterAdvancedProperty` |
+| Interrupt Scaling | Enabled | `Set-NetAdapterAdvancedProperty` |
+
+**Why these settings matter:**
+
+- **VMQ** assigns dedicated hardware queues per VM, offloading traffic classification from the host CPU to the NIC. This is required for SET hardware offload and reduces context switching.
+- **VMMQ** extends VMQ by spreading a single VM's traffic across multiple queues and processors, preventing a single core from becoming a bottleneck on high-throughput workloads.
+- **RSS** distributes incoming network traffic across multiple CPU cores using hash-based flow steering, preventing receive-side CPU saturation on busy adapters.
+- **Accelerated Receive Flow Steering** dynamically steers flows to the optimal CPU, reducing inter-core traffic and improving cache locality.
+- **Interrupt Scaling** distributes NIC interrupts across processors proportionally to load, avoiding hot-spotting on a single core.
+
 ```powershell
 # Enable VMQ on all physical adapters (required for SET hardware offload)
 Get-NetAdapter -Name "pNIC-*" | Set-NetAdapterVmq -Enabled $true
@@ -393,13 +409,21 @@ Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
 
 #### 5.9b Queue and Ring Buffer Tuning
 
-| Setting | Recommended Value |
-|---|---|
-| VM Queues | 8–16 |
-| Receive Queue Count | 16 (or CPU-aligned) |
-| Receive Ring Size | 1024–2048 |
-| Transmit Ring Size | 512–1024 |
-| Completion Ring Size | 64–128 |
+| Setting | Recommended Value | Cmdlet / Property |
+|---|---|---|
+| VM Queues | 8–16 | `Set-NetAdapterVmq -MaxProcessors 16` |
+| Receive Queue Count | 16 (CPU-aligned) | Advanced Property — Maximum Number of RSS Queues |
+| Receive Ring Size | 2048 | Advanced Property — Receive Buffers |
+| Transmit Ring Size | 1024 | Advanced Property — Transmit Buffers |
+| Completion Ring Size | 128 | Advanced Property — Completion Queue Size |
+
+**Why these settings matter:**
+
+- **VM Queues (8–16)** — Allocates dedicated hardware queues per VM. Capping at 16 processors per queue prevents over-subscribing NIC resources while still parallelizing traffic across cores.
+- **Receive Queue Count (16)** — Aligns RSS queues to available logical processors so inbound traffic is distributed evenly. Under-provisioning creates CPU hot spots; over-provisioning wastes NIC queue slots.
+- **Receive Ring Size (2048)** — Larger receive buffers absorb traffic bursts (e.g., live migration, CSV sync) without dropping frames. Default values (256–512) are too low for sustained cluster workloads.
+- **Transmit Ring Size (1024)** — Provides headroom for bursty outbound traffic. Prevents transmit stalls when multiple VMs generate concurrent egress flows.
+- **Completion Ring Size (128)** — Ensures the NIC can signal completed I/O operations without backpressure. Undersized completion queues introduce latency spikes under load.
 
 ```powershell
 # Tune queue and ring buffer settings (values are adapter-specific — adjust to match hardware)
@@ -427,6 +451,18 @@ Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
 
 #### 5.9c Offload Settings
 
+| Setting | Value | Cmdlet / Property |
+|---|---|---|
+| Checksum Offload (TCP/UDP, IPv4/IPv6) | RxTxEnabled | `Set-NetAdapterChecksumOffload` |
+| Large Send Offload (LSO) | Enabled | `Enable-NetAdapterLso` |
+| Large Receive Offload (LRO) | Disabled | Advanced Property — Large Receive Offload |
+
+**Why these settings matter:**
+
+- **Checksum Offload (RxTxEnabled)** — Moves TCP/UDP checksum computation from the host CPU to the NIC hardware for both transmit and receive paths. Frees CPU cycles for VM workloads and reduces per-packet processing latency.
+- **LSO (Enabled)** — Allows the host to hand large data buffers to the NIC, which segments them into MTU-sized frames in hardware. Dramatically reduces CPU overhead for bulk transfers such as live migration and CSV replication.
+- **LRO (Disabled)** — LRO coalesces multiple received packets into larger buffers before passing them up the stack. While beneficial for bare-metal workloads, LRO interferes with the Hyper-V virtual switch forwarding path and can cause packet corruption or dropped frames. Microsoft explicitly recommends disabling LRO on Hyper-V hosts.
+
 ```powershell
 # Enable checksum offloads (Tx + Rx)
 Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
@@ -449,6 +485,14 @@ Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
 
 #### 5.9d Interrupt Mode and Coalescing
 
+| Setting | Value | Cmdlet / Property |
+|---|---|---|
+| Interrupt Moderation | Adaptive | Advanced Property — Interrupt Moderation |
+
+**Why this setting matters:**
+
+- **Adaptive Interrupt Moderation** dynamically adjusts the interrupt coalescing rate based on current traffic volume. Under light load, interrupts fire promptly to keep latency low (important for cluster heartbeat). Under heavy load, the NIC batches interrupts to reduce CPU overhead (important for live migration and CSV throughput). A static setting would force a trade-off between latency and CPU efficiency; Adaptive gives the best of both.
+
 ```powershell
 # Set interrupt moderation to Adaptive (MSI-X is typically configured at firmware level)
 Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
@@ -461,12 +505,69 @@ Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
 
 #### 5.9e RSS Configuration
 
+| Setting | Value | Cmdlet / Property |
+|---|---|---|
+| RSS | Enabled | `Set-NetAdapterRss -Enabled $true` |
+| RSS Profile | Closest | `Set-NetAdapterRss -Profile Closest` |
+
+**Why these settings matter:**
+
+- **RSS Enabled** — Receive Side Scaling distributes inbound traffic across multiple processors using a per-flow hash. Without RSS, all receive processing lands on a single core, creating a throughput ceiling on high-traffic adapters.
+- **Profile Closest** — Restricts RSS queue-to-processor assignments to the NUMA node closest to the NIC's PCIe slot. This minimizes cross-NUMA memory access, reducing latency and improving cache hit rates. Alternative profiles (`NUMAScaling`, `Conservative`) spread across remote NUMA nodes, which adds memory access penalty on multi-socket servers.
+
 ```powershell
 # Enable RSS and set a NUMA-aware profile for optimal traffic distribution
 Get-NetAdapter -Name "pNIC-*" | ForEach-Object {
     Set-NetAdapterRss -Name $_.Name `
     -Enabled $true `
     -Profile Closest
+}
+```
+
+#### 5.9f Host vNIC Tuning (InterConnect)
+
+Some physical-adapter tuning cmdlets also apply to host virtual NICs created by `AllowManagementOS`. The matrix below shows which settings carry over:
+
+| Setting | pNIC (`pNIC-*`) | Host vNIC (`vEthernet`) | Notes |
+|---|---|---|---|
+| RSS | Yes | Yes | Profile and hash settings |
+| Checksum Offload | Yes | Yes | Tx + Rx offload |
+| LSO | Yes | Yes | Large Send Offload v2 |
+| VMQ / VMMQ | Yes | No | Hardware queue — pNIC only |
+| Advanced Property | Yes | No | Driver-level tuning — pNIC only |
+
+The following settings are applied to the InterConnect host vNICs:
+
+| Setting | Value | Benefit |
+|---|---|---|
+| RSS — Enabled, Profile Closest | `Set-NetAdapterRss -Enabled $true -Profile Closest` | Distributes cluster heartbeat and live migration receive traffic across NUMA-local cores, preventing single-core bottlenecks on the host vNIC path |
+| Checksum Offload — RxTxEnabled | `Set-NetAdapterChecksumOffload` (all protocols) | Offloads TCP/UDP checksum computation to the virtual path, reducing CPU cost for high-volume CSV and live migration flows |
+| LSO — Enabled | `Enable-NetAdapterLso` | Allows large live migration buffers to be segmented efficiently, improving migration throughput and reducing per-packet CPU overhead |
+
+> **Note**: The Management host vNIC (`vEthernet (Mgmt - Host Management)`) inherits default settings and does not require explicit tuning. The Compute vSwitch has no host vNIC (`AllowManagementOS $false`).
+
+```powershell
+# Define the InterConnect host vNICs
+$interconnectVnics = @(
+    "vEthernet (InterConnect - Cluster Heartbeat)",
+    "vEthernet (InterConnect - Live Migration)"
+)
+
+# Enable RSS with NUMA-aware profile
+$interconnectVnics | ForEach-Object {
+    Set-NetAdapterRss -Name $_ -Enabled $true -Profile Closest
+}
+
+# Enable checksum offloads (Tx + Rx)
+$interconnectVnics | ForEach-Object {
+    Set-NetAdapterChecksumOffload -Name $_ `
+        -TcpIPv4 RxTxEnabled -UdpIPv4 RxTxEnabled `
+        -TcpIPv6 RxTxEnabled -UdpIPv6 RxTxEnabled
+}
+
+# Enable Large Send Offload
+$interconnectVnics | ForEach-Object {
+    Enable-NetAdapterLso -Name $_
 }
 ```
 
@@ -489,7 +590,7 @@ Set-VMHost -MaximumVirtualMachineMigrations 2
 
 ```powershell
 # Verify SET switches and bandwidth mode
-Get-VMSwitch | Select-Object Name, SwitchType, EmbeddedTeamingEnabled, MinimumBandwidthMode |
+Get-VMSwitch | Select-Object Name, SwitchType, EmbeddedTeamingEnabled, BandwidthReservationMode |
     Format-Table -AutoSize
 
 # Verify team members
@@ -518,6 +619,18 @@ Get-NetAdapterRss -Name "pNIC-*" -ErrorAction SilentlyContinue |
 # Verify checksum offload configuration/capabilities (physical hosts)
 Get-NetAdapterChecksumOffload -Name "pNIC-*" -ErrorAction SilentlyContinue |
     Format-List Name, ChecksumOffloadHardwareCapabilities
+
+# Verify RSS on InterConnect host vNICs
+Get-NetAdapterRss -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthernet (InterConnect - Live Migration)" |
+    Select-Object Name, Enabled, Profile | Format-Table -AutoSize
+
+# Verify checksum offload on InterConnect host vNICs
+Get-NetAdapterChecksumOffload -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthernet (InterConnect - Live Migration)" |
+    Select-Object Name, TcpIPv4, UdpIPv4, TcpIPv6, UdpIPv6 | Format-Table -AutoSize
+
+# Verify LSO on InterConnect host vNICs
+Get-NetAdapterLso -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthernet (InterConnect - Live Migration)" |
+    Select-Object Name, V2IPv4Enabled, V2IPv6Enabled | Format-Table -AutoSize
 
 # Verify connectivity between nodes
 Test-NetConnection -ComputerName "192.168.148.52" -InformationLevel Detailed
