@@ -1009,6 +1009,8 @@ Invoke-Command -ComputerName "TEST-HV01", "TEST-HV02", "TEST-HV03" -ScriptBlock 
 }
 ```
 
+<img src='.img/2026-04-08-14-14-18.png' width=600>
+
 ### 10.2 Configure Live Migration Networks
 
 ```powershell
