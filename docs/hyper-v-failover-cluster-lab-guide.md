@@ -319,6 +319,8 @@ Get-NetAdapter -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthernet 
   }
 ```
 
+<img src='.img/2026-04-08-11-58-25.png' width=800>
+
 > **Note**: Ensure UCS vNIC policies and upstream switching also use MTU 9000 end-to-end. VM networks use 1500 or 9000 depending on workload requirements.
 
 ### 5.6 Configure IP Addresses on Host vNICs
@@ -338,9 +340,6 @@ New-NetIPAddress -InterfaceAlias "vEthernet (InterConnect - Live Migration)" `
 ### 5.7 Configure SET Team Settings
 
 ```powershell
-# View the SET team configuration
-Get-VMSwitchTeam -Name "Mgmt"
-
 # Set load balancing algorithm (HyperVPort is the default and recommended for UCS)
 Set-VMSwitchTeam -Name "Mgmt" -LoadBalancingAlgorithm HyperVPort
 Set-VMSwitchTeam -Name "Interconnect" -LoadBalancingAlgorithm HyperVPort
