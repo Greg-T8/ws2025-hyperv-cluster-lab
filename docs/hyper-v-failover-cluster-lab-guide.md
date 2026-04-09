@@ -9,7 +9,7 @@ This guide walks through the end-to-end process of building a **Windows Server 2
 1. [Architecture Overview](#1-architecture-overview)
 2. [Prerequisites](#2-prerequisites)
 3. [Phase 1 — Host Configuration](#3-phase-1--host-configuration)
-4. [Phase 2 — Install and Configure Hyper-V Role](#4-phase-2--install-and-configure-hyper-v-role)
+4. [Phase 2 — Install Hyper-V and Clustering Components](#4-phase-2--install-hyper-v-and-clustering-components)
 5. [Phase 3 — Networking with SET Virtual Switches](#5-phase-3--networking-with-set-virtual-switches)
 6. [Phase 4 — Storage Configuration](#6-phase-4--storage-configuration)
 7. [Phase 5 — Active Directory Preparation](#7-phase-5--active-directory-preparation)
@@ -185,12 +185,12 @@ powercfg /setactive SCHEME_MIN  # High performance
 
 ---
 
-## 4. Phase 2 — Install and Configure Hyper-V Role
+## 4. Phase 2 — Install Hyper-V and Clustering Components
 
-### 4.1 Install the Hyper-V Role
+### 4.1 Install the Hyper-V and Failover Clustering Roles
 
 ```powershell
-Install-WindowsFeature -Name Hyper-V `
+Install-WindowsFeature -Name Hyper-V, Failover-Clustering `
     -IncludeManagementTools `
     -Restart
 ```
@@ -874,17 +874,7 @@ Add-ADGroupMember -Identity "Domain Admins" -Members "svc-cluster"
 
 ## 8. Phase 6 — Failover Clustering
 
-### 8.1 Install the Failover Clustering Feature
-
-On **each cluster node**:
-
-```powershell
-Install-WindowsFeature -Name Failover-Clustering `
-    -IncludeManagementTools `
-    -Restart
-```
-
-### 8.2 Validate the Cluster Configuration
+### 8.1 Validate the Cluster Configuration
 
 Run from **any one node** (validation tests all specified nodes):
 
@@ -894,7 +884,7 @@ Test-Cluster -Node "TEST-HV01", "TEST-HV02", "TEST-HV03" -Include "Storage", "In
 
 Review the validation report carefully. Address any warnings or errors before proceeding. The report is saved to `C:\Windows\Cluster\Reports` by default.
 
-### 8.3 Create the Failover Cluster
+### 8.2 Create the Failover Cluster
 
 ```powershell
 New-Cluster -Name "HV-Cluster" `
@@ -907,7 +897,7 @@ New-Cluster -Name "HV-Cluster" `
 
 > **Note**: Use `-NoStorage` to create the cluster without automatically adding eligible disks. Storage is added explicitly in the next phase.
 
-### 8.4 Verify Cluster Formation
+### 8.3 Verify Cluster Formation
 
 ```powershell
 Get-Cluster | Select-Object Name, Domain
@@ -917,7 +907,7 @@ Get-ClusterNetwork | Select-Object Name, Role, Address | Format-Table -AutoSize
 
 <img src='.img/2026-04-08-14-05-05.png' width=600>
 
-### 8.5 Configure Cluster Networks
+### 8.4 Configure Cluster Networks
 
 After cluster creation, rename and configure the cluster networks for clarity:
 
