@@ -152,7 +152,7 @@ $Config = {
             LiveMigration = @{ Subnet = $subnetConfig.LiveMigrationSubnet; Role = 1 }
         }
 
-        # ---- NIC Hardware Tuning (Physical Hosts — Silently Skipped in Nested Hyper-V Environments) ----
+        # ---- NIC Hardware Tuning (Physical Hosts) ----
         PhysicalNicPattern    = 'pNIC-*'
         VmqState              = 'Enabled'
         VmmqState             = 'Enabled'
@@ -232,6 +232,14 @@ $Main = {
     }
 
     Write-Host "`nConfiguration complete for $($hostCfg.Name).`n" -ForegroundColor Green
+
+    # Generate a post-configuration report from actual system state and export to CSV.
+    $report     = Get-ConfigurationReport -Config $cfg
+    $reportPath = Export-ConfigurationReport -Report $report
+    Write-Host "  Configuration report exported to $reportPath" -ForegroundColor Green
+
+    # Output report objects to the pipeline for optional piping (Format-Table, etc.).
+    $report
 }
 
 $Helpers = {
@@ -294,6 +302,9 @@ $Helpers = {
     function Install-HyperVRole {
         # Install Hyper-V and Failover Clustering roles and return whether a reboot is pending.
 
+        # Validate CPU virtualization prerequisites before attempting role installation.
+        # Confirm-HyperVInstallPrerequisite
+
         $features = Get-WindowsFeature -Name Hyper-V, Failover-Clustering
         $missing  = $features | Where-Object { $_.InstallState -ne 'Installed' }
 
@@ -304,7 +315,43 @@ $Helpers = {
         }
 
         Write-Host '  Installing Hyper-V and Failover Clustering...' -ForegroundColor Yellow
-        $result = Install-WindowsFeature -Name Hyper-V, Failover-Clustering -IncludeManagementTools
+
+        try {
+            $result = Install-WindowsFeature -Name Hyper-V, Failover-Clustering -IncludeManagementTools -ErrorAction Stop
+        }
+        catch {
+            $installError = $_.Exception.Message
+
+            # Provide nested-lab specific remediation when Hyper-V reports BIOS virtualization is disabled.
+            if ($installError -match 'virtualization support is not enabled in the BIOS') {
+                $guidance = @(
+                    'Hyper-V/Failover-Clustering installation failed: nested virtualization is not exposed to this guest OS.',
+                    'Run these commands on the parent Hyper-V host while this VM is Off:',
+                    "  Stop-VM -Name $env:COMPUTERNAME -Force",
+                    "  Set-VMMemory -VMName $env:COMPUTERNAME -DynamicMemoryEnabled `$false -StartupBytes 8GB",
+                    "  Set-VMProcessor -VMName $env:COMPUTERNAME -ExposeVirtualizationExtensions `$true -CompatibilityForMigrationEnabled `$false",
+                    "  Set-VM -Name $env:COMPUTERNAME -AutomaticCheckpointsEnabled `$false",
+                    "  Get-VMProcessor -VMName $env:COMPUTERNAME | Select-Object ExposeVirtualizationExtensions, CompatibilityForMigrationEnabled",
+                    "  Start-VM -Name $env:COMPUTERNAME",
+                    'Then run this script again inside the VM.'
+                ) -join [Environment]::NewLine
+
+                throw $guidance
+            }
+
+            throw "Hyper-V/Failover-Clustering installation failed. $installError"
+        }
+
+        # Stop execution when installation reports a failed state.
+        if (-not $result.Success) {
+            $failedFeatures = @($result.FeatureResult | Where-Object { -not $_.Success } | ForEach-Object { $_.Name })
+            if ($failedFeatures.Count -eq 0) {
+                $failedFeatures = @('UnknownFeature')
+            }
+
+            $failedList = $failedFeatures -join ', '
+            throw "Feature installation did not complete successfully. Failed feature(s): $failedList"
+        }
 
         # Handle reboot requirement after feature installation.
         if ($result.RestartNeeded -eq 'Yes') {
@@ -320,6 +367,46 @@ $Helpers = {
 
         Write-Host '  Hyper-V and Failover Clustering installed successfully' -ForegroundColor DarkGray
         return $false
+    }
+
+    function Confirm-HyperVInstallPrerequisite {
+        # Ensure CPU virtualization and SLAT prerequisites are available before installing Hyper-V.
+
+        $processor = Get-CimInstance -ClassName Win32_Processor | Select-Object -First 1
+
+        $failedChecks = @()
+
+        # Verify hardware virtualization extensions are available in the current OS context.
+        if (-not $processor.VMMonitorModeExtensions) {
+            $failedChecks += 'VMMonitorModeExtensions'
+        }
+
+        # Verify SLAT support required by Hyper-V.
+        if (-not $processor.SecondLevelAddressTranslationExtensions) {
+            $failedChecks += 'SecondLevelAddressTranslationExtensions'
+        }
+
+        # Warn if VirtualizationFirmwareEnabled is False (expected in nested VMs — not a blocking check).
+        if (-not $processor.VirtualizationFirmwareEnabled) {
+            Write-Warning ('VirtualizationFirmwareEnabled is False. ' +
+                'This is normal inside nested VMs and does not prevent Hyper-V installation.')
+        }
+
+        # Exit early with actionable guidance when prerequisites are missing.
+        if ($failedChecks.Count -gt 0) {
+            $failedList = $failedChecks -join ', '
+            $guidance = @(
+                'Hyper-V prerequisites are missing in this OS context.',
+                "Failed check(s): $failedList",
+                'If this server is a nested VM, run these commands on the parent Hyper-V host (while VM is Off):',
+                "  Stop-VM -Name $env:COMPUTERNAME -Force",
+                "  Set-VMProcessor -VMName $env:COMPUTERNAME -ExposeVirtualizationExtensions `$true",
+                "  Start-VM -Name $env:COMPUTERNAME",
+                'Then run this script again inside the VM.'
+            ) -join [Environment]::NewLine
+
+            throw $guidance
+        }
     }
 
     function Set-HyperVHostSetting {
@@ -380,7 +467,7 @@ $Helpers = {
                 -EnableEmbeddedTeaming $true `
                 -NetAdapterName $sw.NetAdapterName `
                 -AllowManagementOS $sw.AllowManagementOS `
-                -MinimumBandwidthMode $sw.MinimumBandwidthMode
+                -MinimumBandwidthMode $sw.MinimumBandwidthMode | Out-Null
         }
 
         Write-Host '  SET virtual switches configured' -ForegroundColor DarkGray
@@ -460,7 +547,7 @@ $Helpers = {
         if (-not $existingCluster) {
             New-NetIPAddress -InterfaceAlias $clusterAlias `
                 -IPAddress $HostConfig.ClusterIP `
-                -PrefixLength $Config.ClusterPrefixLength
+                -PrefixLength $Config.ClusterPrefixLength | Out-Null
         }
 
         # Assign Live Migration IP if not already configured.
@@ -468,7 +555,7 @@ $Helpers = {
         if (-not $existingLM) {
             New-NetIPAddress -InterfaceAlias $lmAlias `
                 -IPAddress $HostConfig.LiveMigrationIP `
-                -PrefixLength $Config.LiveMigrationPrefixLength
+                -PrefixLength $Config.LiveMigrationPrefixLength | Out-Null
         }
 
         # Set DNS to the domain controller on the Management vNIC.
@@ -781,6 +868,179 @@ $Helpers = {
         )
 
         "$SubnetAddress/$PrefixLength"
+    }
+
+    #endregion
+
+    #region CONFIGURATION REPORT
+    # Query actual system state and export a post-configuration report to CSV.
+
+    function Get-ConfigurationReport {
+        # Collect actual system state across all configuration areas and return uniform PSCustomObjects.
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory)]
+            [hashtable]$Config
+        )
+
+        $rows = [System.Collections.Generic.List[PSCustomObject]]::new()
+
+        # Helper to add a row with consistent schema.
+        $addRow = {
+            param([string]$Category, [string]$Item, [string]$Property, [string]$Value)
+            $rows.Add([PSCustomObject]@{
+                Category = $Category
+                Item     = $Item
+                Property = $Property
+                Value    = $Value
+            })
+        }
+
+        # ---- Host Identity ----
+        & $addRow 'Host Identity' $env:COMPUTERNAME 'ComputerName' $env:COMPUTERNAME
+        & $addRow 'Host Identity' $env:COMPUTERNAME 'Domain'       $Config.DomainName
+        & $addRow 'Host Identity' $env:COMPUTERNAME 'DnsServer'    $Config.DnsServer
+
+        # ---- SET Virtual Switches ----
+        $switches = Get-VMSwitch -ErrorAction SilentlyContinue
+        foreach ($sw in $switches) {
+            $teamMembers = ($sw.NetAdapterInterfaceDescriptions | Sort-Object) -join '; '
+            & $addRow 'SET Virtual Switch' $sw.Name 'SwitchType'          $sw.SwitchType
+            & $addRow 'SET Virtual Switch' $sw.Name 'EmbeddedTeaming'     $sw.EmbeddedTeamingEnabled
+            & $addRow 'SET Virtual Switch' $sw.Name 'TeamMembers'         $teamMembers
+            & $addRow 'SET Virtual Switch' $sw.Name 'AllowManagementOS'   $sw.AllowManagementOS
+            & $addRow 'SET Virtual Switch' $sw.Name 'BandwidthReservationMode' $sw.BandwidthReservationMode
+        }
+
+        # ---- Host vNICs & IP Addresses ----
+        $hostVNics = Get-VMNetworkAdapter -ManagementOS -ErrorAction SilentlyContinue
+        foreach ($vnic in $hostVNics) {
+            $adapterName = "vEthernet ($($vnic.Name))"
+            $ips = Get-NetIPAddress -InterfaceAlias $adapterName -AddressFamily IPv4 -ErrorAction SilentlyContinue
+
+            & $addRow 'Host vNIC' $vnic.Name 'SwitchName' $vnic.SwitchName
+
+            # Report each IPv4 address assigned to the vNIC.
+            foreach ($ip in $ips) {
+                & $addRow 'Host vNIC' $vnic.Name 'IPAddress'    $ip.IPAddress
+                & $addRow 'Host vNIC' $vnic.Name 'PrefixLength' $ip.PrefixLength
+            }
+        }
+
+        # ---- Hyper-V Host Settings ----
+        $vmHost = Get-VMHost -ErrorAction SilentlyContinue
+        if ($vmHost) {
+            & $addRow 'Hyper-V Host' $env:COMPUTERNAME 'VirtualMachinePath'              $vmHost.VirtualMachinePath
+            & $addRow 'Hyper-V Host' $env:COMPUTERNAME 'VirtualHardDiskPath'             $vmHost.VirtualHardDiskPath
+            & $addRow 'Hyper-V Host' $env:COMPUTERNAME 'NumaSpanningEnabled'             $vmHost.NumaSpanningEnabled
+            & $addRow 'Hyper-V Host' $env:COMPUTERNAME 'EnableEnhancedSessionMode'       $vmHost.EnableEnhancedSessionMode
+            & $addRow 'Hyper-V Host' $env:COMPUTERNAME 'MaximumVirtualMachineMigrations' $vmHost.MaximumVirtualMachineMigrations
+        }
+
+        # ---- QoS Bandwidth Weights ----
+        foreach ($vnic in $hostVNics) {
+            # Only report QoS weights for vNICs with a non-zero weight.
+            if ($vnic.BandwidthSetting -and $vnic.BandwidthSetting.MinimumBandwidthWeight -gt 0) {
+                & $addRow 'QoS Bandwidth' $vnic.Name 'MinimumBandwidthWeight' $vnic.BandwidthSetting.MinimumBandwidthWeight
+            }
+        }
+
+        # ---- Jumbo Frames ----
+        $interconnectVNics = @(
+            "vEthernet ($($Config.ClusterVNicName))",
+            "vEthernet ($($Config.LiveMigrationVNicName))"
+        )
+        foreach ($alias in $interconnectVNics) {
+            $jumbo = Get-NetAdapterAdvancedProperty -Name $alias -DisplayName 'Jumbo Packet' -ErrorAction SilentlyContinue
+            if ($jumbo) {
+                & $addRow 'Jumbo Frames' $alias 'JumboPacket' $jumbo.DisplayValue
+            }
+        }
+
+        # ---- NIC Tuning (Physical NICs) ----
+        $physicalNics = Get-NetAdapter -Name $Config.PhysicalNicPattern -ErrorAction SilentlyContinue
+        if ($physicalNics) {
+            foreach ($nic in $physicalNics) {
+                $vmq = Get-NetAdapterVmq -Name $nic.Name -ErrorAction SilentlyContinue
+                if ($vmq) {
+                    & $addRow 'NIC Tuning' $nic.Name 'VmqEnabled'      $vmq.Enabled
+                    & $addRow 'NIC Tuning' $nic.Name 'VmqMaxProcessors' $vmq.MaxProcessors
+                }
+
+                $rss = Get-NetAdapterRss -Name $nic.Name -ErrorAction SilentlyContinue
+                if ($rss) {
+                    & $addRow 'NIC Tuning' $nic.Name 'RssEnabled' $rss.Enabled
+                    & $addRow 'NIC Tuning' $nic.Name 'RssProfile' $rss.Profile
+                }
+
+                $cso = Get-NetAdapterChecksumOffload -Name $nic.Name -ErrorAction SilentlyContinue
+                if ($cso) {
+                    & $addRow 'NIC Tuning' $nic.Name 'ChecksumOffload-TcpIPv4' $cso.TcpIPv4
+                    & $addRow 'NIC Tuning' $nic.Name 'ChecksumOffload-UdpIPv4' $cso.UdpIPv4
+                }
+
+                # Collect key advanced properties.
+                $advProps = @('Virtual Machine Multi-Queue', 'Receive Buffers', 'Transmit Buffers',
+                              'Interrupt Moderation', 'Maximum Number of RSS Queues')
+                foreach ($propName in $advProps) {
+                    $adv = Get-NetAdapterAdvancedProperty -Name $nic.Name -DisplayName $propName -ErrorAction SilentlyContinue
+                    if ($adv) {
+                        $safeKey = $propName -replace ' ', ''
+                        & $addRow 'NIC Tuning' $nic.Name $safeKey $adv.DisplayValue
+                    }
+                }
+            }
+        }
+
+        # ---- Cluster Info (conditional) ----
+        $cluster = Get-Cluster -ErrorAction SilentlyContinue
+        if ($cluster) {
+            & $addRow 'Cluster' $cluster.Name 'ClusterName'   $cluster.Name
+            & $addRow 'Cluster' $cluster.Name 'ClusterDomain' $cluster.Domain
+
+            # Report each cluster network with its role and subnet.
+            $clusterNets = Get-ClusterNetwork -ErrorAction SilentlyContinue
+            foreach ($net in $clusterNets) {
+                & $addRow 'Cluster Network' $net.Name 'Address' $net.Address
+                & $addRow 'Cluster Network' $net.Name 'Role'    $net.Role
+                & $addRow 'Cluster Network' $net.Name 'State'   $net.State
+            }
+
+            # Report live migration settings from the local host.
+            if ($vmHost) {
+                & $addRow 'Live Migration' $env:COMPUTERNAME 'VirtualMachineMigrationEnabled'        $vmHost.VirtualMachineMigrationEnabled
+                & $addRow 'Live Migration' $env:COMPUTERNAME 'MigrationAuthenticationType'           $vmHost.VirtualMachineMigrationAuthenticationType
+                & $addRow 'Live Migration' $env:COMPUTERNAME 'MigrationPerformanceOption'            $vmHost.VirtualMachineMigrationPerformanceOption
+                & $addRow 'Live Migration' $env:COMPUTERNAME 'MaximumVirtualMachineMigrations'       $vmHost.MaximumVirtualMachineMigrations
+            }
+
+            # Report configured migration networks.
+            $migNets = Get-VMMigrationNetwork -ErrorAction SilentlyContinue
+            foreach ($mn in $migNets) {
+                & $addRow 'Live Migration' $mn.Subnet 'MigrationSubnet' $mn.Subnet
+                & $addRow 'Live Migration' $mn.Subnet 'Priority'        $mn.Priority
+            }
+        }
+
+        $rows.ToArray()
+    }
+
+    function Export-ConfigurationReport {
+        # Export the report object array to a timestamped CSV in $PSScriptRoot.
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory)]
+            [PSCustomObject[]]$Report
+        )
+
+        $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        $fileName  = "HyperV-Config-Report_${env:COMPUTERNAME}_${timestamp}.csv"
+        $filePath  = Join-Path -Path $PSScriptRoot -ChildPath $fileName
+
+        # Write the report rows to CSV without type metadata.
+        $Report | Export-Csv -Path $filePath -NoTypeInformation -Encoding UTF8
+
+        $filePath
     }
 
     #endregion
