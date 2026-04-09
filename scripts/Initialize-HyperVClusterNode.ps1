@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Configures a Hyper-V cluster node and optionally creates a failover cluster.
+Configures a Hyper-V cluster node, optionally creates a failover cluster, and outputs a configuration report.
 
 .DESCRIPTION
 Runs locally on each cluster node to apply host baseline settings, create SET virtual
@@ -12,11 +12,15 @@ When -CreateCluster is specified (run on one node only after all nodes are confi
 the script validates the cluster, creates it with -NoStorage, renames cluster networks,
 and configures live migration with Kerberos authentication and a dedicated subnet.
 
+At the end of execution, the script queries actual host and cluster state, outputs a
+configuration report as PSCustomObject rows to the pipeline, and exports the same report
+to a timestamped CSV file in the script directory.
+
 Prerequisites:
-  - Windows Server 2025 Datacenter installed on all nodes
-  - All nodes domain-joined with DNS pointing to the domain controller
-  - Physical or virtual NICs named to match $Config.Switches NIC patterns
-  - PowerShell remoting enabled between nodes (for -CreateCluster)
+    - Windows Server 2025 Datacenter installed on all nodes
+    - All nodes domain-joined with DNS pointing to the domain controller
+    - Physical or virtual NICs named to match $Config.Switches NIC patterns
+    - PowerShell remoting enabled between nodes (for -CreateCluster)
 
 .PARAMETER CreateCluster
 Create the failover cluster and configure live migration. Run on one node only
@@ -26,6 +30,10 @@ after all nodes have been individually configured.
 Suppress automatic reboot after installing Hyper-V and Failover Clustering roles.
 The script will warn and exit; re-run after a manual reboot.
 
+.OUTPUTS
+System.Management.Automation.PSCustomObject
+One row per configuration property with Category, Item, Property, and Value fields.
+
 .CONTEXT
 3-node Hyper-V failover cluster HV environment (Windows Server 2025 Datacenter)
 
@@ -34,6 +42,7 @@ Greg Tate
 
 .NOTES
 Program: Initialize-HyperVClusterNode.ps1
+CSV report file format: HyperV-Config-Report_<COMPUTERNAME>_<yyyyMMdd-HHmmss>.csv
 #>
 
 [CmdletBinding()]
