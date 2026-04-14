@@ -202,7 +202,7 @@ resource "hyperv_machine_instance" "cluster_node" {
 
   # Attach two adapters for combined cluster heartbeat and live migration traffic.
   network_adaptors {
-    name                 = "Interconnect-1"
+    name                 = "InterConnect-1"
     switch_name          = var.interconnect_switch_name
     allow_teaming        = "On"
     mac_address_spoofing = "On"
@@ -210,7 +210,7 @@ resource "hyperv_machine_instance" "cluster_node" {
   }
 
   network_adaptors {
-    name                 = "Interconnect-2"
+    name                 = "InterConnect-2"
     switch_name          = var.interconnect_switch_name
     allow_teaming        = "On"
     mac_address_spoofing = "On"
@@ -293,13 +293,13 @@ resource "hyperv_machine_instance" "cluster_node" {
 
     boot_order {
       boot_type            = "NetworkAdapter"
-      network_adapter_name = "Interconnect-1"
+      network_adapter_name = "InterConnect-1"
       switch_name          = var.interconnect_switch_name
     }
 
     boot_order {
       boot_type            = "NetworkAdapter"
-      network_adapter_name = "Interconnect-2"
+      network_adapter_name = "InterConnect-2"
       switch_name          = var.interconnect_switch_name
     }
 

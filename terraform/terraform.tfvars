@@ -32,7 +32,7 @@ csv_disk_size_gb = 6
 
 # Set switch names used by host and domain controller adapters.
 management_switch_name = "Ethernet vSwitch"
-interconnect_switch_name = "Interconnect"
+interconnect_switch_name = "InterConnect"
 internal_switch_name   = "Internal vSwitch"
 
 # Set Active Directory domain settings.

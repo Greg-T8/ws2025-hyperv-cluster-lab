@@ -150,7 +150,7 @@ variable "management_switch_name" {
 variable "interconnect_switch_name" {
   description = "Name of the switch used for combined cluster and live migration adapters"
   type        = string
-  default     = "Interconnect"
+  default     = "InterConnect"
 }
 
 variable "internal_switch_name" {

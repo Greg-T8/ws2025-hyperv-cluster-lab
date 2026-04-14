@@ -52,15 +52,15 @@ graph LR
         subgraph GNICS["VM vNICs (physical adapters inside guest OS)"]
             M1["pNIC-Mgmt-1"]
             M2["pNIC-Mgmt-2"]
-            IC1["pNIC-Interconnect-1"]
-            IC2["pNIC-Interconnect-2"]
+            IC1["pNIC-InterConnect-1"]
+            IC2["pNIC-InterConnect-2"]
             CP1["pNIC-Compute-1"]
             CP2["pNIC-Compute-2"]
         end
 
         subgraph GSET["SET Virtual Switches"]
             SET_M["Mgmt\nSET · External"]
-            SET_I["Interconnect\nSET · External"]
+            SET_I["InterConnect\nSET · External"]
             SET_CP["Compute\nSET · External"]
         end
 
@@ -100,7 +100,7 @@ Each cluster node uses **six physical NICs** (or virtual NICs in a nested lab) o
 | SET vSwitch | Member NICs | Traffic Type | Switch Type |
 |---|---|---|---|
 | `Mgmt` | pNIC-Mgmt-1, pNIC-Mgmt-2 | Host management, DNS, domain traffic | External |
-| `Interconnect` | pNIC-Interconnect-1, pNIC-Interconnect-2 | Cluster heartbeat, live migration traffic | External |
+| `InterConnect` | pNIC-InterConnect-1, pNIC-InterConnect-2 | Cluster heartbeat, live migration traffic | External |
 | `Compute` | pNIC-Compute-1, pNIC-Compute-2 | Compute guest network traffic | External |
 
 ### IP Addressing
@@ -243,8 +243,8 @@ Set-VMHost -MaximumVirtualMachineMigrations 2
 
 This configuration aligns with the Cisco UCS + Hyper-V migration design:
 
-- **Three SET switches**: Mgmt, Interconnect (Cluster + Live Migration), Compute
-- **MTU 9000 for Interconnect** (Live Migration + Storage traffic); Mgmt remains at 1500
+- **Three SET switches**: Mgmt, InterConnect (Cluster + Live Migration), Compute
+- **MTU 9000 for InterConnect** (Live Migration + Storage traffic); Mgmt remains at 1500
 - **Weight-based QoS** — avoid hard bandwidth caps; allow burst when capacity is available
 - **HyperVPort load balancing** — deterministic behavior aligned with UCS fabric pinning
 - **Offload and queue features enabled** — VMQ, VMMQ, RSS, and checksum offloads aligned to UCS adapter policy
@@ -279,21 +279,21 @@ Rename-NetAdapter -Name "vEthernet (Mgmt)" -NewName "vEthernet (Mgmt - Host Mana
 
 <img src='.img/2026-04-07-15-06-04.png' width=800>
 
-### 5.4 Create the Interconnect SET vSwitch
+### 5.4 Create the InterConnect SET vSwitch
 
 ```powershell
 # Create an external SET vSwitch for cluster heartbeat and live migration traffic
-New-VMSwitch -Name "Interconnect" `
+New-VMSwitch -Name "InterConnect" `
     -EnableEmbeddedTeaming $true `
-    -NetAdapterName "pNIC-Interconnect-1", "pNIC-Interconnect-2" `
+    -NetAdapterName "pNIC-InterConnect-1", "pNIC-InterConnect-2" `
     -AllowManagementOS $true `
     -MinimumBandwidthMode Weight
 
 # Rename the default host vNIC and add a second host vNIC on the same switch
-Rename-NetAdapter -Name "vEthernet (Interconnect)" -NewName "vEthernet (InterConnect - Cluster Heartbeat)"
+Rename-NetAdapter -Name "vEthernet (InterConnect)" -NewName "vEthernet (InterConnect - Cluster Heartbeat)"
 # Keep the Hyper-V management vNIC object name aligned with the renamed host NIC alias
-Rename-VMNetworkAdapter -ManagementOS -Name "Interconnect" -NewName "InterConnect - Cluster Heartbeat"
-Add-VMNetworkAdapter -ManagementOS -Name "InterConnect - Live Migration" -SwitchName "Interconnect"
+Rename-VMNetworkAdapter -ManagementOS -Name "InterConnect" -NewName "InterConnect - Cluster Heartbeat"
+Add-VMNetworkAdapter -ManagementOS -Name "InterConnect - Live Migration" -SwitchName "InterConnect"
 ```
 
 <img src='.img/2026-04-07-14-56-00.png' width=900>
@@ -315,12 +315,12 @@ New-VMSwitch -Name "Compute" `
 
 > **Tip**: Set `-AllowManagementOS $false` on the Compute vSwitch to keep host management traffic isolated from guest compute traffic.
 
-### 5.5a Configure Jumbo Frames (Interconnect Only)
+### 5.5a Configure Jumbo Frames (InterConnect Only)
 
-Enable MTU 9000 on the Interconnect host vNICs for Live Migration and Storage (CSV) traffic. The Management vNIC remains at the default 1500 MTU.
+Enable MTU 9000 on the InterConnect host vNICs for Live Migration and Storage (CSV) traffic. The Management vNIC remains at the default 1500 MTU.
 
 ```powershell
-# Enable Jumbo Frames on Interconnect host vNICs (MTU 9000 — Platinum QoS alignment)
+# Enable Jumbo Frames on InterConnect host vNICs (MTU 9000 — Platinum QoS alignment)
 Get-NetAdapter -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthernet (InterConnect - Live Migration)" | 
   ForEach-Object {
     Set-NetAdapterAdvancedProperty -Name $_.Name -DisplayName "Jumbo Packet" -DisplayValue "9014 Bytes"
@@ -350,7 +350,7 @@ New-NetIPAddress -InterfaceAlias "vEthernet (InterConnect - Live Migration)" `
 ```powershell
 # Set load balancing algorithm (HyperVPort is the default and recommended for UCS)
 Set-VMSwitchTeam -Name "Mgmt" -LoadBalancingAlgorithm HyperVPort
-Set-VMSwitchTeam -Name "Interconnect" -LoadBalancingAlgorithm HyperVPort
+Set-VMSwitchTeam -Name "InterConnect" -LoadBalancingAlgorithm HyperVPort
 Set-VMSwitchTeam -Name "Compute" -LoadBalancingAlgorithm HyperVPort
 ```
 
@@ -366,7 +366,7 @@ Weight-based QoS aligns with the UCS Platinum / Gold / Silver traffic model:
 | Management | Silver | 1500 |
 
 ```powershell
-# Assign bandwidth weights to Interconnect host vNICs
+# Assign bandwidth weights to InterConnect host vNICs
 Set-VMNetworkAdapter -ManagementOS -Name "InterConnect - Live Migration" -MinimumBandwidthWeight 50
 Set-VMNetworkAdapter -ManagementOS -Name "InterConnect - Cluster Heartbeat" -MinimumBandwidthWeight 10
 ```
@@ -639,7 +639,7 @@ Get-VMNetworkAdapter -ManagementOS | Select-Object -ExpandProperty BandwidthSett
 <img src='.img/2026-04-08-12-18-32.png' width=600>
 
 ```powershell
-# Verify Jumbo Frames on Interconnect vNICs
+# Verify Jumbo Frames on InterConnect vNICs
 Get-NetAdapterAdvancedProperty -Name "vEthernet (InterConnect - Cluster Heartbeat)", "vEthernet (InterConnect - Live Migration)" `
     -DisplayName "Jumbo Packet" |
 Format-Table -Auto
