@@ -59,9 +59,10 @@ param(
 # Edit this block to match your environment before running the script.
 $Config = {
     $physicalNicNames = [ordered]@{
-        Mgmt         = @('pNIC-Mgmt-1', 'pNIC-Mgmt-2')
-        InterConnect = @('pNIC-InterConnect-1', 'pNIC-InterConnect-2')
-        Compute      = @('pNIC-Compute-1', 'pNIC-Compute-2')
+        Mgmt          = @('GC-HV-Mgmt-pNIC-1', 'GC-HV-Mgmt-pNIC-2')
+        Cluster       = @('GC-HV-Cluster-pNIC-1', 'GC-HV-Cluster-pNIC-2')
+        LiveMigration = @('GC-HV-LM-pNIC-1', 'GC-HV-LM-pNIC-2')
+        Compute       = @('GC-HV-Compute-pNIC-1', 'GC-HV-Compute-pNIC-2')
     }
 
     $subnetConfig = [ordered]@{
@@ -112,17 +113,22 @@ $Config = {
 
         # ---- SET Virtual Switch Definitions ----
         Switches = [ordered]@{
-            Mgmt         = @{
+            Mgmt = @{
                 NetAdapterName       = $physicalNicNames.Mgmt
                 AllowManagementOS    = $true
                 MinimumBandwidthMode = 'None'
             }
-            InterConnect = @{
-                NetAdapterName       = $physicalNicNames.InterConnect
+            Cluster = @{
+                NetAdapterName       = $physicalNicNames.Cluster
                 AllowManagementOS    = $true
-                MinimumBandwidthMode = 'Weight'
+                MinimumBandwidthMode = 'None'
             }
-            Compute      = @{
+            LiveMigration = @{
+                NetAdapterName       = $physicalNicNames.LiveMigration
+                AllowManagementOS    = $true
+                MinimumBandwidthMode = 'None'
+            }
+            Compute = @{
                 NetAdapterName       = $physicalNicNames.Compute
                 AllowManagementOS    = $false
                 MinimumBandwidthMode = 'None'
@@ -132,14 +138,10 @@ $Config = {
 
         # ---- Host vNIC Naming ----
         MgmtVNicName          = 'Mgmt - Host Management'
-        ClusterVNicName       = 'InterConnect - Cluster Heartbeat'
-        LiveMigrationVNicName = 'InterConnect - Live Migration'
+        ClusterVNicName       = 'Cluster - Heartbeat'
+        LiveMigrationVNicName = 'LiveMigration - Host'
 
-        # ---- QoS Bandwidth Weights (InterConnect Switch) ----
-        LiveMigrationBandwidthWeight = 50
-        ClusterBandwidthWeight       = 10
-
-        # ---- Jumbo Frames (InterConnect Only) ----
+        # ---- Jumbo Frames (Live Migration Only) ----
         JumboFrameValue = '9014 Bytes'
 
         # ---- Hyper-V Host Settings ----
@@ -162,7 +164,7 @@ $Config = {
         }
 
         # ---- NIC Hardware Tuning (Physical Hosts) ----
-        PhysicalNicPattern    = 'pNIC-*'
+        PhysicalNicPattern    = 'GC-HV-*-pNIC-*'
         VmqState              = 'Enabled'
         VmmqState             = 'Enabled'
         RssState              = 'Enabled'
@@ -180,7 +182,7 @@ $Config = {
         RssProfile            = 'Closest'
         InterruptModeration   = 'Adaptive'
 
-        # ---- Host vNIC Tuning (InterConnect) ----
+        # ---- Host vNIC Tuning (Cluster and Live Migration) ----
         HostVNicRssState             = 'Enabled'
         HostVNicChecksumOffloadState = 'RxTxEnabled'
         HostVNicLsoState             = 'Enabled'
@@ -204,16 +206,19 @@ $Main = {
     $rebootNeeded = Install-HyperVRole
     if ($rebootNeeded) { return }
 
+    # Phase 2 — Verify the dedicated eight-NIC topology before changing host networking.
+    Confirm-NetworkTopology -Config $cfg
+
     # Phase 2 — Configure Hyper-V host defaults (paths, NUMA, session mode, migration limit).
     Set-HyperVHostSetting -Config $cfg
 
-    # Phase 3 — Create SET virtual switches (Mgmt, InterConnect, Compute).
+    # Phase 3 — Create dedicated SET virtual switches (Mgmt, Cluster, LiveMigration, Compute).
     New-SetVirtualSwitch -Config $cfg
 
-    # Phase 3 — Rename default host vNICs and add the Live Migration vNIC.
+    # Phase 3 — Rename the default host vNICs for management, cluster, and live migration.
     Set-HostVNic -Config $cfg
 
-    # Phase 3 — Enable Jumbo Frames on InterConnect host vNICs.
+    # Phase 3 — Enable Jumbo Frames on the Live Migration host vNIC.
     Set-JumboFrame -Config $cfg
 
     # Phase 3 — Assign per-node IP addresses and DNS on host vNICs.
@@ -222,13 +227,10 @@ $Main = {
     # Phase 3 — Set load balancing algorithm on all SET switches.
     Set-SwitchTeamSetting -Config $cfg
 
-    # Phase 3 — Assign QoS bandwidth weights on InterConnect vNICs.
-    Set-QosBandwidthWeight -Config $cfg
-
     # Phase 3 — Apply NIC hardware tuning (silently skipped in nested Hyper-V environments).
     Set-PhysicalNicTuning -Config $cfg
 
-    # Phase 3 — Apply host vNIC tuning on InterConnect adapters.
+    # Phase 3 — Apply host vNIC tuning on Cluster and Live Migration adapters.
     Set-HostVNicTuning -Config $cfg
 
     # Phase 6 + 8 — Create the failover cluster and configure live migration.
@@ -445,10 +447,44 @@ $Helpers = {
     #endregion
 
     #region SET VIRTUAL SWITCH NETWORKING
-    # Create SET switches, configure host vNICs, IP addressing, QoS, and jumbo frames.
+    # Create SET switches, configure host vNICs, IP addressing, and jumbo frames.
+
+    function Confirm-NetworkTopology {
+        # Confirm the dedicated eight-NIC topology is present and the legacy switch is absent.
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory)]
+            [hashtable]$Config
+        )
+
+        # Build the complete set of required physical adapter names from the role mappings.
+        $expectedAdapters = @(
+            $Config.PhysicalNicNames.Mgmt
+            $Config.PhysicalNicNames.Cluster
+            $Config.PhysicalNicNames.LiveMigration
+            $Config.PhysicalNicNames.Compute
+        )
+        $detectedAdapters = Get-NetAdapter -Name $expectedAdapters -ErrorAction SilentlyContinue
+        $missingAdapters = @(
+            $expectedAdapters |
+                Where-Object { $_ -notin $detectedAdapters.Name }
+        )
+
+        # Stop before creating switches when any required dedicated adapter is unavailable.
+        if ($missingAdapters) {
+            throw "Required dedicated physical NIC(s) not found: $($missingAdapters -join ', ')"
+        }
+
+        # Refuse the clean-host deployment when the legacy shared topology is present.
+        if (Get-VMSwitch -Name 'InterConnect' -ErrorAction SilentlyContinue) {
+            throw 'Legacy SET vSwitch ''InterConnect'' detected. This script supports clean dedicated-topology hosts only; remove or migrate the legacy topology before running it.'
+        }
+
+        Write-Host '  Dedicated eight-NIC topology validated' -ForegroundColor DarkGray
+    }
 
     function New-SetVirtualSwitch {
-        # Create SET virtual switches for Mgmt, InterConnect, and Compute traffic.
+        # Create dedicated SET virtual switches for Mgmt, Cluster, LiveMigration, and Compute traffic.
         [CmdletBinding()]
         param(
             [Parameter(Mandatory)]
@@ -483,49 +519,59 @@ $Helpers = {
     }
 
     function Set-HostVNic {
-        # Rename default host vNICs and add the Live Migration vNIC on the InterConnect switch.
+        # Rename the default host vNICs on the Mgmt, Cluster, and LiveMigration switches.
         [CmdletBinding()]
         param(
             [Parameter(Mandatory)]
             [hashtable]$Config
         )
 
-        $mgmtTarget    = "vEthernet ($($Config.MgmtVNicName))"
-        $clusterTarget = "vEthernet ($($Config.ClusterVNicName))"
-
-        # Rename the Mgmt host vNIC if it still has the default name.
-        if (Get-NetAdapter -Name 'vEthernet (Mgmt)' -ErrorAction SilentlyContinue) {
-            Rename-NetAdapter -Name 'vEthernet (Mgmt)' -NewName $mgmtTarget
+        # Map each host-facing SET switch to its role-specific management OS adapter name.
+        $hostVNicMappings = [ordered]@{
+            Mgmt          = $Config.MgmtVNicName
+            Cluster       = $Config.ClusterVNicName
+            LiveMigration = $Config.LiveMigrationVNicName
         }
 
-        # Rename the InterConnect host vNIC (OS adapter and Hyper-V management adapter).
-        if (Get-NetAdapter -Name 'vEthernet (InterConnect)' -ErrorAction SilentlyContinue) {
-            Rename-NetAdapter -Name 'vEthernet (InterConnect)' -NewName $clusterTarget
-            Rename-VMNetworkAdapter -ManagementOS -Name 'InterConnect' -NewName $Config.ClusterVNicName
-        }
+        # Rename each management OS adapter created with its dedicated SET switch.
+        foreach ($switchName in $hostVNicMappings.Keys) {
+            $vNicName      = $hostVNicMappings[$switchName]
+            $defaultAlias  = "vEthernet ($switchName)"
+            $targetAlias   = "vEthernet ($vNicName)"
+            $defaultVNic   = Get-VMNetworkAdapter -ManagementOS -Name $switchName -ErrorAction SilentlyContinue
+            $existingVNic  = Get-VMNetworkAdapter -ManagementOS -Name $vNicName -ErrorAction SilentlyContinue
 
-        # Add the Live Migration host vNIC if it does not already exist.
-        if (-not (Get-VMNetworkAdapter -ManagementOS -Name $Config.LiveMigrationVNicName -ErrorAction SilentlyContinue)) {
-            Add-VMNetworkAdapter -ManagementOS -Name $Config.LiveMigrationVNicName -SwitchName 'InterConnect'
+            # Rename the OS adapter when it still uses the SET switch's default name.
+            if (Get-NetAdapter -Name $defaultAlias -ErrorAction SilentlyContinue) {
+                Rename-NetAdapter -Name $defaultAlias -NewName $targetAlias
+            }
+            elseif (-not (Get-NetAdapter -Name $targetAlias -ErrorAction SilentlyContinue)) {
+                throw "Expected host vNIC '$defaultAlias' or '$targetAlias' was not found."
+            }
+
+            # Rename the Hyper-V management adapter to keep it aligned with the OS adapter.
+            if ($defaultVNic) {
+                Rename-VMNetworkAdapter -ManagementOS -Name $switchName -NewName $vNicName
+            }
+            elseif (-not $existingVNic) {
+                throw "Expected Hyper-V host vNIC '$switchName' or '$vNicName' was not found."
+            }
         }
 
         Write-Host '  Host vNICs configured (Mgmt, Cluster Heartbeat, Live Migration)' -ForegroundColor DarkGray
     }
 
     function Set-JumboFrame {
-        # Enable Jumbo Frames (MTU 9014) on InterConnect host vNICs.
+        # Enable Jumbo Frames (MTU 9014) on the Live Migration host vNIC.
         [CmdletBinding()]
         param(
             [Parameter(Mandatory)]
             [hashtable]$Config
         )
 
-        $vnics = @(
-            "vEthernet ($($Config.ClusterVNicName))",
-            "vEthernet ($($Config.LiveMigrationVNicName))"
-        )
+        $vnics = @("vEthernet ($($Config.LiveMigrationVNicName))")
 
-        # Apply jumbo frame setting to each InterConnect host vNIC.
+        # Apply jumbo frame setting to the dedicated Live Migration host vNIC.
         foreach ($vnic in $vnics) {
             Set-NetAdapterAdvancedProperty -Name $vnic `
                 -DisplayName 'Jumbo Packet' `
@@ -533,7 +579,7 @@ $Helpers = {
                 -ErrorAction SilentlyContinue
         }
 
-        Write-Host "  Jumbo Frames set to $($Config.JumboFrameValue) on InterConnect vNICs" -ForegroundColor DarkGray
+        Write-Host "  Jumbo Frames set to $($Config.JumboFrameValue) on the Live Migration vNIC" -ForegroundColor DarkGray
     }
 
     function Set-HostVNicIpAddress {
@@ -587,27 +633,6 @@ $Helpers = {
         }
 
         Write-Host "  SET load balancing set to $($Config.LoadBalancingAlgorithm)" -ForegroundColor DarkGray
-    }
-
-    function Set-QosBandwidthWeight {
-        # Assign QoS minimum bandwidth weights to InterConnect host vNICs.
-        [CmdletBinding()]
-        param(
-            [Parameter(Mandatory)]
-            [hashtable]$Config
-        )
-
-        # Weight Live Migration for burst throughput priority under contention.
-        Set-VMNetworkAdapter -ManagementOS `
-            -Name $Config.LiveMigrationVNicName `
-            -MinimumBandwidthWeight $Config.LiveMigrationBandwidthWeight
-
-        # Weight Cluster Heartbeat for low-latency guaranteed bandwidth.
-        Set-VMNetworkAdapter -ManagementOS `
-            -Name $Config.ClusterVNicName `
-            -MinimumBandwidthWeight $Config.ClusterBandwidthWeight
-
-        Write-Host "  QoS weights assigned (LM: $($Config.LiveMigrationBandwidthWeight), Cluster: $($Config.ClusterBandwidthWeight))" -ForegroundColor DarkGray
     }
 
     #endregion
@@ -721,7 +746,7 @@ $Helpers = {
     }
 
     function Set-HostVNicTuning {
-        # Apply RSS, checksum offload, and LSO tuning to InterConnect host vNICs.
+        # Apply RSS, checksum offload, and LSO tuning to Cluster and Live Migration host vNICs.
         [CmdletBinding()]
         param(
             [Parameter(Mandatory)]
@@ -759,7 +784,7 @@ $Helpers = {
             }
         }
 
-        Write-Host '  InterConnect host vNIC tuning applied (RSS, checksum, LSO)' -ForegroundColor DarkGray
+        Write-Host '  Cluster and Live Migration host vNIC tuning applied (RSS, checksum, LSO)' -ForegroundColor DarkGray
     }
 
     #endregion
@@ -955,11 +980,8 @@ $Helpers = {
         }
 
         # ---- Jumbo Frames ----
-        $interconnectVNics = @(
-            "vEthernet ($($Config.ClusterVNicName))",
-            "vEthernet ($($Config.LiveMigrationVNicName))"
-        )
-        foreach ($alias in $interconnectVNics) {
+        $liveMigrationVNic = "vEthernet ($($Config.LiveMigrationVNicName))"
+        foreach ($alias in @($liveMigrationVNic)) {
             $jumbo = Get-NetAdapterAdvancedProperty -Name $alias -DisplayName 'Jumbo Packet' -ErrorAction SilentlyContinue
             if ($jumbo) {
                 & $addRow 'Jumbo Frames' $alias 'JumboPacket' $jumbo.DisplayValue
